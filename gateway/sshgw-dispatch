@@ -1,0 +1,19 @@
+#!/bin/bash
+# sshgw-dispatch: ForceCommand del gateway unico nubecita. sshd lo ejecuta COMO el
+# usuario autenticado (host_id), cuyo nombre llega en $USER. Delega en gwssh (root via sudo).
+#   - ssh interactivo (sin comando): shell en la VM.
+#   - rsync/scp/sftp/git-over-ssh: sshd pone el comando pedido en SSH_ORIGINAL_COMMAND;
+#     lo re-ejecutamos en la VM SIN forzar TTY (con -tt rsync/scp rompen).
+set -u
+[ -n "${USER:-}" ] || { echo "sin usuario" >&2; exit 1; }
+CMD="${SSH_ORIGINAL_COMMAND:-}"
+if [ -z "$CMD" ]; then
+  exec sudo -n /usr/local/bin/gwssh "$USER"
+fi
+case "$CMD" in
+  rsync\ --server*|rsync\ -*) ;;
+  scp\ -t*|scp\ -f*|scp\ --remote-protocol*|/usr/libexec/sftp-server*|/usr/lib/openssh/sftp-server*) ;;
+  git-upload-pack\ *|git-receive-pack\ *|git\ server*|git\ -C*) ;;
+  *) echo "comando no permitido: solo shell interactiva, rsync, scp, sftp o git por SSH" >&2; exit 1;;
+esac
+exec sudo -n /usr/local/bin/gwssh "$USER" -c "$CMD"

@@ -1,0 +1,34 @@
+#!/bin/bash
+# gwssh HOST_ID [-c COMANDO]: corre como root (via sudo desde sshgw-dispatch).
+# Abre ssh hacia la VM del host_id usando la clave de salto de esa VM.
+#   - sin -c: shell interactiva (-tt)  -> comportamiento historico
+#   - con -c: ejecuta COMANDO en la VM SIN TTY -> rsync/scp/sftp/git-over-ssh
+set -u
+HOST_ID="${1:?uso: gwssh HOST_ID [-c COMANDO]}"; shift
+CMD=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c) CMD="${2:?falta comando tras -c}"; shift 2;;
+    *) echo "argumento inesperado: $1" >&2; exit 2;;
+  esac
+done
+TOK_FILE="/opt/cloudapi/admin_token.txt"
+[ -r "$TOK_FILE" ] || { echo "sin token" >&2; exit 1; }
+TOK="$(head -c 500 "$TOK_FILE")"
+[ -n "$TOK" ] || exit 1
+RES=$(curl -s -m 5 -H "Authorization: Bearer $TOK" \
+  "http://localhost:8088/internal/gw-user/$HOST_ID" 2>/dev/null)
+[ -n "$RES" ] || { echo "VM no encontrada para $HOST_ID" >&2; exit 1; }
+VMID=$(echo "$RES" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("vmid",""))' 2>/dev/null)
+IP=$(echo "$RES" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("ip",""))' 2>/dev/null)
+[ -n "$VMID" ] && [ -n "$IP" ] || { echo "sin vmid/ip" >&2; exit 1; }
+KEY="/var/sshgw/vm$VMID.key"
+[ -r "$KEY" ] || { echo "sin clave de salto" >&2; exit 1; }
+SSHOPTS=(-i "$KEY"
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+  -o LogLevel=ERROR -o IdentitiesOnly=yes)
+if [ -n "$CMD" ]; then
+  exec ssh "${SSHOPTS[@]}" root@"$IP" "$CMD"
+else
+  exec ssh "${SSHOPTS[@]}" -tt root@"$IP"
+fi

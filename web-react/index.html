@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nubecita — Asistente de Lanzamiento</title>
+    <style>
+      /* Fallback mínimo mientras carga el bundle (mantiene el tema dark-teal) */
+      :root {
+        --bg: #001519;
+        --panel: #05252e;
+        --line: #14434e;
+        --acc: #00a2b0;
+        --txt: #d6eef0;
+        --mut: #7ea9ad;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--txt);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

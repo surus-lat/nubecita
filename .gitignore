@@ -1,0 +1,25 @@
+# runtime / estado (no versionar)
+venv/
+__pycache__/
+*.pyc
+
+# datos
+cloud.db
+cloud.db-*
+*.sqlite
+*.sqlite3
+
+# secretos (viven en el unit systemd / se rotan)
+admin_token.txt
+cf_api_token.txt
+*.key
+*.crt
+secrets*
+
+# backups manuales (la version ahora va a git)
+app.py.bak*
+web/*.bak*
+
+# estado de runtime
+stok.json
+web/react-island.js

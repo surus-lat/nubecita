@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consola nubeCITA</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#001519; --panel:#05252e; --panel2:#093039; --panel3:#0d3d47;
+  --line:#14434e; --line2:#0b333c;
+  --txt:#d6eef0; --mut:#7ea9ad; --acc:#00A2B0; --acc-dim:#0a4a52;
+  --warm:#E5DC75; --ok:#3ecf7a; --warn:#f0b34c; --bad:#ff6161;
+  --disp:"Space Grotesk",system-ui,sans-serif;
+  --body:"Inter",system-ui,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --shadow:0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;font:14px/1.5 var(--body);background:var(--bg);color:var(--txt)}
+a{color:var(--acc)}
+code,.mono{font-family:var(--mono);font-size:.92em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+
+/* ── header ── */
+header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
+  padding:10px 20px;background:rgba(0,21,25,.92);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--txt)}
+.logo svg{display:block}
+.logo .name{font:700 18px/1 var(--disp);letter-spacing:-.02em}
+.logo .name b{color:var(--acc);font-weight:700}
+.tagline{color:var(--mut);font-size:12px}
+header .who{margin-left:auto;display:flex;align-items:center;gap:10px;color:var(--mut);font-size:13px}
+.syncdot{width:8px;height:8px;border-radius:50%;background:var(--ok);opacity:.35;transition:opacity .3s,transform .3s}
+.syncdot.pulse{opacity:1;transform:scale(1.3)}
+.tabs{display:flex;gap:4px;margin-left:18px}
+.tabs button{background:none;border:0;color:var(--mut);font:500 13px var(--body);
+  padding:7px 12px;border-radius:7px;cursor:pointer;transition:background .15s,color .15s}
+.tabs button:hover{color:var(--txt);background:var(--panel2)}
+.tabs button.on{color:var(--txt);background:var(--panel2);box-shadow:inset 0 -2px 0 var(--acc)}
+
+main{padding:20px;max-width:1240px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card h2{margin:0 0 12px;font:500 12px/1 var(--body);color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+.card h3{margin:0 0 8px;font:600 15px/1.3 var(--disp)}
+.mt{margin-top:16px}
+
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 3px}
+input,select,textarea{width:100%;padding:8px 10px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;color:var(--txt);font:14px var(--body);
+  transition:border-color .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+input.err{border-color:var(--bad)}
+input[type=number]{-moz-appearance:textfield}
+.fld{margin-bottom:2px}
+.fld .ferr{color:var(--bad);font-size:12px;min-height:15px;margin-top:3px}
+
+button{background:var(--acc);border:0;color:#00282F;padding:8px 14px;border-radius:8px;
+  font:600 13px var(--body);cursor:pointer;transition:filter .15s,background .15s,border-color .15s,opacity .15s}
+button:hover:not(:disabled){filter:brightness(1.1)}
+button:disabled{opacity:.5;cursor:wait}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--mut);font-weight:500}
+button.ghost:hover:not(:disabled){color:var(--txt);border-color:var(--mut)}
+button.danger{background:transparent;border:1px solid #5a2a2a;color:var(--bad);font-weight:500}
+button.danger:hover:not(:disabled){background:#2a1515}
+button.sm{padding:4px 10px;font-size:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:0}
+.btnwrap{display:inline-flex;align-items:center;gap:7px}
+.spin{width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--mut);text-align:left;font-weight:500;border-bottom:1px solid var(--line);
+  padding:7px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+td{padding:9px 8px;border-bottom:1px solid var(--line2);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:rgba(0,162,176,.08)}
+tr.rowdead td{opacity:.45}
+tr.rowdead td:first-child b{font-weight:400;text-decoration:line-through}
+
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap}
+.pill::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;background:currentColor;vertical-align:1px}
+.pill.running{background:#12301f;color:var(--ok)}
+.pill.stopped{background:#3a2c14;color:var(--warn)}
+.pill.deleted,.pill.absent{background:#33181c;color:var(--bad)}
+.pill.pending,.pill.other,.pill.unknown{background:#232c40;color:var(--mut)}
+.pill.drift{background:#42320f;color:var(--warn);margin-left:6px}
+.pill.provisioning{background:#12301f;color:var(--acc);animation:blink 1.2s ease-in-out infinite}
+.pill.t_open,.pill.t_in_progress{background:#232c40;color:var(--mut)}
+.pill.t_resolved{background:#12301f;color:var(--ok)}
+.pill.t_closed{background:#33181c;color:var(--bad)}
+@keyframes blink{50%{opacity:.45}}
+
+.bar{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin:5px 0 2px}
+.bar>i{display:block;height:100%;background:var(--acc);border-radius:4px;transition:width .4s}
+.bar.warn>i{background:var(--warn)}
+.bar.full>i{background:var(--bad)}
+.qrow{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-top:12px;gap:10px}
+.qrow .val{color:var(--mut);font-family:var(--mono);font-size:12px}
+
+.stat{display:flex;flex-direction:column;gap:2px;padding:12px 14px;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px}
+.stat .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em}
+.stat .v{font:700 24px/1.1 var(--disp);letter-spacing:-.02em}
+.stat .v small{font:500 13px var(--body);color:var(--mut)}
+.stat .pct{font-size:11px;color:var(--mut)}
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.lowbal{margin-top:10px;padding:10px 14px;border-radius:12px;font-size:13px;background:#3d3312;
+  border:1px solid var(--warn);color:var(--warn)}
+
+.msg{font-size:13px;margin-top:10px;min-height:0}
+.msg.err{color:var(--bad)} .msg.ok{color:var(--ok)} .msg.info{color:var(--mut)}
+.muted{color:var(--mut)}
+.warn{color:var(--warn)}
+.empty{color:var(--mut);font-size:13px;padding:14px 4px;text-align:center}
+
+/* ── toasts ── */
+#toasts{position:fixed;top:14px;right:14px;z-index:80;display:flex;flex-direction:column;gap:8px;
+  width:min(360px,calc(100vw - 28px));pointer-events:none}
+.toast{pointer-events:auto;background:var(--panel3);border:1px solid var(--line);
+  border-left:3px solid var(--acc);border-radius:9px;padding:10px 12px;font-size:13px;
+  box-shadow:var(--shadow);display:flex;gap:9px;align-items:flex-start;
+  animation:tin .18s ease-out}
+.toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--bad)}
+.toast .ticon{font-size:14px;line-height:1.3}
+.toast .tx{flex:1}
+.toast .tc{background:none;border:0;color:var(--mut);cursor:pointer;font-size:15px;padding:0 2px;line-height:1.2}
+.toast.bye{animation:tout .25s ease-in forwards}
+@keyframes tin{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes tout{to{transform:translateX(24px);opacity:0}}
+
+/* ── login ── */
+#login{max-width:400px;margin:9vh auto 0}
+#login .card{padding:28px 28px 22px}
+.brandblock{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.brandblock .name{font:700 26px/1 var(--disp);letter-spacing:-.02em}
+.brandblock .name b{color:var(--acc)}
+.brandblock .sub{font-size:12px;color:var(--mut);margin-top:3px}
+.formbtn{width:100%;margin-top:16px;padding:10px;display:flex;align-items:center;justify-content:center;gap:8px}
+.pwwrap{position:relative}
+.pwwrap button{position:absolute;right:6px;top:6px;background:none;border:0;color:var(--mut);
+  cursor:pointer;font-size:14px;padding:5px 6px;border-radius:6px}
+.pwwrap button:hover{color:var(--txt);background:var(--panel2)}
+.loginhint{font-size:12px;color:var(--mut);margin-top:12px;text-align:center}
+
+/* -- footer colab -- */
+footer.colab{padding:26px 20px 30px;text-align:center}
+.colabrow{display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
+.colab img.unrn{height:20px;display:block}
+.colab .cw,.colab .sw{font:600 13px var(--disp);letter-spacing:.14em;color:var(--mut);text-transform:uppercase}
+.colab svg.nabla{height:26px;width:auto;display:block}
+
+/* ── modal ── */
+.modal{position:fixed;inset:0;background:rgba(0,12,14,.72);z-index:50;display:none;animation:fadein .15s ease-out}
+.modal.show{display:block}
+.modal .box{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(920px,94vw);height:min(580px,86vh);background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;
+  box-shadow:var(--shadow)}
+.modal .box .mbar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.termwrap{flex:1;min-height:0;background:#001c21;border-radius:8px;overflow:hidden}
+/* confirm */
+.modal .cbox{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(460px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:20px;box-shadow:var(--shadow)}
+.modal .cbox h3{margin:0 0 8px;font:600 16px var(--disp)}
+.modal .cbox p{margin:0 0 16px;color:var(--mut);font-size:13px}
+.modal .cbox .cbtns{display:flex;gap:10px;justify-content:flex-end}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+
+/* ── filters ── */
+.filt{display:flex;gap:4px;margin-bottom:10px}
+.srch{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);
+  font:400 12px var(--body);padding:5px 10px;width:170px}
+.srch::placeholder{color:var(--mut)}
+.srch:focus{outline:none;border-color:var(--acc)}
+.filt button{background:none;border:0;color:var(--mut);font:500 12px var(--body);
+  padding:5px 11px;border-radius:99px;cursor:pointer}
+.filt button:hover{color:var(--txt)}
+.filt button.on{background:var(--panel2);color:var(--txt);box-shadow:inset 0 -1px 0 var(--acc)}
+
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+pre.codebox{background:var(--panel2);padding:10px 12px;border-radius:8px;overflow:auto;
+  font:12px/1.55 var(--mono);margin:6px 0;position:relative}
+.copybtn{position:absolute;top:8px;right:8px;background:var(--panel3);border:1px solid var(--line);
+  color:var(--mut);border-radius:6px;font-size:11px;padding:3px 9px;cursor:pointer}
+.copybtn:hover{color:var(--txt);border-color:var(--mut)}
+
+.hint{font-size:12px;color:var(--mut);margin-top:8px}
+
+/* ── banda de incidentes (admin overview) ── */
+.incband{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 14px;border-radius:10px;
+  border:1px solid var(--line);border-left:4px solid var(--acc);background:var(--panel);
+  font-size:13px;margin-bottom:14px}
+.incband.ok{border-left-color:var(--ok);background:#0d2417}
+.incband.warn{border-left-color:var(--warn);background:#231b0b}
+.incband .sep{color:var(--mut)}
+.incband .driftwarn{color:var(--warn);font-weight:600}
+.incband .provwarn{color:var(--warn)}
+/* ── drawer de edición (admin users) ── */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);z-index:40;background:var(--panel);
+  border-left:1px solid var(--line);box-shadow:var(--shadow);transform:translateX(102%);
+  transition:transform .25s ease;overflow-y:auto;padding:16px 18px}
+.drawer.open{transform:translateX(0)}
+.drawer .dhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.drawer .dhead h2{margin:0;flex:1;font:600 15px/1.3 var(--disp)}
+.drawer .dhead button{background:none;border:0;color:var(--mut);font-size:16px;cursor:pointer;padding:2px 4px}
+.drawer .dhead button:hover{color:var(--txt)}
+/* ── drawer detalle (cliente) ── */
+.clDrawer{position:fixed;right:0;top:0;bottom:0;width:min(440px,92vw);background:var(--panel);
+  border-left:1px solid var(--line);z-index:45;transform:translateX(105%);transition:transform .22s;
+  padding:18px;overflow-y:auto;box-shadow:var(--shadow)}
+.clDrawer.open{transform:none}
+.clDrawer .dh{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.clDrawer .dh b{font:600 16px/1.3 var(--disp)}
+.clDrawer .dh button{margin-left:auto;background:none;border:0;color:var(--mut);font-size:16px;cursor:pointer}
+.clDrawer .sec{margin-top:14px}
+.clDrawer .sec .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px}
+.clDrawer .sec .v{font-size:14px}
+.clDrawer .dacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+#clDrawerOv{position:fixed;inset:0;background:rgba(0,12,14,.45);z-index:44;display:none}
+#clDrawerOv.show{display:block}
+/* ── presets del wizard ── */
+.presetrow{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center}
+.presetrow .ptip{color:var(--mut);font-size:12px;margin-right:2px}
+.presetrow button{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  font:500 12px var(--body);padding:6px 11px;border-radius:99px;cursor:pointer}
+.presetrow button:hover{border-color:var(--mut)}
+.presetrow button.on{box-shadow:inset 0 -2px 0 var(--acc);border-color:var(--acc)}
+.hint .ndiff{color:var(--warn)}
+/* ── skeleton loaders ── */
+.skl{background:var(--panel2);border-radius:5px;animation:blinker 1.3s ease-in-out infinite;margin:9px 8px}
+.sklrow{display:flex;gap:8px}
+.sklrow .skl{flex:1;height:16px;margin:0}
+.costbox{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:10px 12px;margin-top:14px}
+.costbox .ck{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em}
+.costbox .cv{font:600 15px var(--disp);color:var(--acc)}
+@media (max-width:720px){
+  .tabs{margin-left:0} header{flex-wrap:wrap}
+  .tagline{display:none}
+  main{padding:12px}
+}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="#" onclick="return false">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <path d="M7 18h9.5a3.5 3.5 0 0 0 .6-6.95 5 5 0 0 0-9.66-1.2A4 4 0 0 0 7 18Z"
+            fill="#00A2B0" opacity=".95"/>
+      <circle cx="16.5" cy="14.5" r="3.4" fill="#E5DC75" opacity=".85"/>
+    </svg>
+    <span class="name">nube<b>cita</b></span>
+  </a>
+  <span class="tagline">nube self-service</span>
+  <nav class="tabs" id="tabs" style="display:none"></nav>
+  <span class="who" id="who"></span>
+  <span class="syncdot" id="syncdot" title="Actualización automática cada 30 s"></span>
+  <button class="ghost sm" id="logoutBtn" style="display:none">Salir</button>
+</header>
+
+<main id="login">
+  <div class="brandblock">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+      <path d="M7 18h9.5a3.5 3.5 0 0 0 .6-6.95 5 5 0 0 0-9.66-1.2A4 4 0 0 0 7 18Z" fill="#00A2B0"/>
+      <circle cx="16.5" cy="14.5" r="3.4" fill="#E5DC75" opacity=".9"/>
+    </svg>
+    <div>
+      <div class="name">nube<b>cita</b></div>
+      <div class="sub">Tu nube, al tamaño que necesites</div>
+    </div>
+  </div>
+  <div class="card">
+    <label for="user">Usuario</label>
+    <input id="user" placeholder="usuario" autocomplete="username">
+    <label for="pass">Contraseña</label>
+    <div class="pwwrap">
+      <input id="pass" type="password" placeholder="contraseña" autocomplete="current-password" style="padding-right:40px">
+      <button type="button" id="passToggle" title="Mostrar/ocultar contraseña" onclick="togglePass()">👁</button>
+    </div>
+    <button class="formbtn" id="loginBtn" onclick="doLogin(this)"><span class="tlabel">Entrar</span></button>
+    <div id="loginMsg" class="msg"></div>
+    <div class="loginhint">Servicio de cómputo CITA · UNRN</div>
+  </div>
+</main>
+
+<main id="app" style="display:none"></main>
+
+<footer class="colab" title="Colaboración UNRN × SURUS">
+  <svg style="display:none" aria-hidden="true"><symbol id="nabla" viewBox="0 0 66 64"><path fill="#02A4B0" fill-rule="evenodd" transform="translate(-3 0)" d="M5.5 2.5H63.5L34 62ZM19 8L35.5 47L52 8Z"></path><path fill="#DCD878" fill-rule="evenodd" transform="translate(-1.5 0)" d="M5.5 2.5H63.5L34 62ZM19 8L35.5 47L52 8Z"></path><path fill="#303030" fill-rule="evenodd" d="M5.5 2.5H63.5L34 62ZM19 8L35.5 47L52 8Z"></path></symbol></svg>
+  <div class="colabrow">
+    <span class="cw">colab</span>
+    <img class="unrn" alt="UNRN" src="data:image/png;base64,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">
+    <span class="cw">×</span>
+    <svg class="nabla" viewBox="0 0 66 64" role="img" aria-label="SURUS"><use href="#nabla"></use></svg><span class="sw">surus</span>
+  </div>
+</footer>
+
+<div id="toasts"></div>
+
+<div id="admDrawer" class="drawer">
+  <div class="dhead">
+    <h2 id="edTitle">Editar selección</h2>
+    <button onclick="closeAdmDrawer()" title="Cerrar (Esc)">✕</button>
+  </div>
+  <div id="edBody"></div>
+</div>
+
+<div id="clDrawerOv" onclick="closeClDrawer()"></div>
+<div id="clDrawer" class="clDrawer"></div>
+
+<div id="sshModal" class="modal">
+  <div class="box">
+    <div class="mbar">
+      <b id="sshTitle" style="font:600 14px var(--disp)">SSH</b>
+      <span style="flex:1"></span>
+      <button class="ghost sm" onclick="closeSsh()">✕ Cerrar</button>
+    </div>
+    <div id="sshTerm" class="termwrap"></div>
+  </div>
+</div>
+
+<div id="confirmModal" class="modal">
+  <div class="cbox">
+    <h3 id="cfTitle"></h3>
+    <p id="cfText"></p>
+    <div class="cbtns">
+      <button class="ghost" onclick="closeConfirm(false)">Cancelar</button>
+      <button id="cfYes" onclick="closeConfirm(true)">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let session=null;      // {role, token, clientId?}
+let brand={name:"nubecita",domain:"nubecita.surus.lat"};
+let adminTab="overview";
+let clientFilter="active";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fdate=s=>s?String(s).slice(0,10):"—";
+const fmtCr=x=>(Math.round((+x||0)*100)/100).toLocaleString("es-AR",{maximumFractionDigits:2});
+function vmIp(ref,subnet){const v=parseInt(ref);if(isNaN(v)||!subnet)return"—";const p=((brand&&brand.vm_net)||"10.20.1").split(".");return`${p[0]}.${p[1]}.${subnet}.${v-6100+2}`;}
+const sshDom=()=>brand.ssh_domain||"ssh.surus.lat";
+
+async function api(path,method="GET",body,role){
+  const r=await fetch(path,{method,headers:{
+    "Authorization":"Bearer "+session.token,
+    ...(body?{"Content-Type":"application/json"}:{})
+  },body:body?JSON.stringify(body):undefined});
+  let d=null; try{d=await r.json()}catch(e){}
+  if(!r.ok) throw new Error((d&&(d.detail||d.message))||r.status+" "+r.statusText);
+  return d;
+}
+/* ── data layer: cache TTL + dedupe in-flight ──
+   cache[path] = {data,at,ttl} (fresco) | {p} (fetch en curso). ttl<=0 => no cachea. */
+const _cache=new Map();
+async function cachedApi(path,ttl=15000,opts){
+  const e=_cache.get(path);
+  if(e){
+    if(e.p)return e.p;                              // dedupe: misma promesa en curso
+    if(Date.now()-e.at<e.ttl)return e.data;         // cache fresco
+  }
+  const entry={};
+  entry.p=api(path,opts&&opts.method,opts&&opts.body,opts&&opts.role)
+    .then(d=>{if(_cache.get(path)===entry&&ttl>0)_cache.set(path,{data:d,at:Date.now(),ttl});return d;})
+    .catch(err=>{if(_cache.get(path)===entry)_cache.delete(path);throw err;});
+  _cache.set(path,entry);
+  return entry.p;
+}
+function cacheBust(prefix){for(const k of _cache.keys())if(k.startsWith(prefix))_cache.delete(k);}
+/* ═══ UI Kit Cloud — Web Components (light DOM: el CSS global .pill/.bar sigue aplicando) ═══ */
+const NC_STAT=["running","stopped","deleted","absent","provisioning"];
+customElements.define("nc-pill",class extends HTMLElement{
+  static get observedAttributes(){return ["status"];}
+  connectedCallback(){this._draw();}
+  attributeChangedCallback(){this._draw();}
+  _draw(){const st=this.getAttribute("status")||"";
+    const k=NC_STAT.includes(st)?st:"other";
+    this.innerHTML=`<span class="pill ${k}">${esc(st||"unknown")}</span>`;}
+});
+customElements.define("nc-quota-bar",class extends HTMLElement{
+  static get observedAttributes(){return ["used","quota"];}
+  connectedCallback(){this._draw();}
+  attributeChangedCallback(){this._draw();}
+  _draw(){const u=+this.getAttribute("used")||0,q=+this.getAttribute("quota")||0;
+    const p=q?Math.min(100,u/q*100):100,cls=q?(u/q>=1?"full":(u/q>=.8?"warn":"")):"";
+    this.innerHTML=`<div class="bar ${cls}"><i style="width:${p}%"></i></div>`;}
+});
+// timestamp relativo ("hace X min") — un solo tick global compartido, no por elemento
+let _ncTimeTimer=null;
+function _ncTick(){for(const el of document.querySelectorAll("nc-time"))el._draw();}
+customElements.define("nc-time",class extends HTMLElement{
+  static get observedAttributes(){return ["ts"];}
+  connectedCallback(){this._draw();if(!_ncTimeTimer)_ncTimeTimer=setInterval(_ncTick,30000);}
+  disconnectedCallback(){if(document.querySelector("nc-time")===null&&_ncTimeTimer){clearInterval(_ncTimeTimer);_ncTimeTimer=null;}}
+  attributeChangedCallback(){this._draw();}
+  _draw(){let t=this.getAttribute("ts")||"";
+    // formato SQLite "YYYY-MM-DD HH:MM:SS" (UTC del server) → parseable
+    const d=new Date(t.includes("T")?t:t.replace(" ","T")+"Z");
+    if(isNaN(d)){this.textContent=esc(t);return;}
+    const m=Math.round((Date.now()-d.getTime())/60000);
+    this.textContent=m<1?"recién":m<60?`hace ${m} min`:m<1440?`hace ${Math.round(m/60)} h`:`hace ${Math.round(m/1440)} d`;
+    this.title=d.toLocaleString();}
+});
+customElements.define("nc-skel-table",class extends HTMLElement{
+  connectedCallback(){const r=+(this.getAttribute("rows")||3);
+    const sk=`<div class="sklrow"><div class="skl" style="flex:2"></div><div class="skl"></div><div class="skl"></div><div class="skl" style="flex:.6"></div></div>`;
+    this.innerHTML=`<div class="tblwrap">${sk.repeat(r)}</div>`;}
+});
+function pill(st){return `<nc-pill status="${esc(st||"")}"></nc-pill>`;}
+function barCls(used,quota){const p=quota?used/quota:1;return p>=1?"full":(p>=.8?"warn":"");}
+function bar(used,quota){return `<nc-quota-bar used="${used}" quota="${quota}"></nc-quota-bar>`;}
+// umbral de cuota: rojo (>=100%) / ámbar (>=80%)
+function qval(used,quota,unit=""){
+  const p=quota?used/quota:1;
+  const c=p>=1?"var(--bad)":(p>=.8?"var(--warn)":"");
+  return `<span style="${c?`color:${c};font-weight:600;`:''}font-family:var(--mono);font-size:12px">${used}${unit?"/"+quota+unit:""}</span>`;
+}
+function setMsg(el,txt,cls){if(!el)return;el.textContent=txt;el.className="msg "+(cls||"");}
+function busy(btn,label){if(!btn)return;if(!btn._lbl)btn._lbl=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML=`<span class="spin"></span><span>${label||btn._lbl}</span>`;}
+function unbusy(btn){if(!btn)return;btn.disabled=false;if(btn._lbl)btn.innerHTML=btn._lbl;}
+function flash(el){if(!el)return;el.classList.add("pulse");setTimeout(()=>el.classList.remove("pulse"),900);}
+
+/* ── toasts ── */
+function toast(msg,type="info",ttl=4500){
+  const box=$("#toasts");
+  const t=document.createElement("div");
+  t.className="toast "+type;
+  const icon=type==="ok"?"✔":type==="err"?"✖":"ℹ";
+  t.innerHTML=`<span class="ticon">${icon}</span><span class="tx">${esc(msg)}</span><button class="tc" title="Cerrar">✕</button>`;
+  t.querySelector(".tc").onclick=()=>dismiss();
+  box.appendChild(t);
+  while(box.children.length>4)box.firstChild.remove();
+  let done=false;
+  function dismiss(){if(done)return;done=true;t.classList.add("bye");setTimeout(()=>t.remove(),260);}
+  if(ttl)setTimeout(dismiss,ttl);
+}
+const okT=(m)=>toast(m,"ok"); const errT=(m)=>toast(m,"err",7000);
+/* Toast con botón copiar para tokens: el texto del token NUNCA se imprime */
+function tokenCopyToast(title,token){
+  const box=$("#toasts");
+  const el=document.createElement("div");
+  el.className="toast ok";
+  el.innerHTML=`<span class="ticon">✔</span><span class="tx">${esc(title)} — <b>cópialo ahora, no se puede volver a leer</b></span>`;
+  const cp=document.createElement("button");
+  cp.className="tc"; cp.style.cssText="background:var(--acc-dim);color:var(--txt);border:0;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer";
+  cp.textContent="📋 copiar";
+  cp.onclick=async()=>{
+    try{await navigator.clipboard.writeText(token);cp.textContent="✔ copiado";okT("Token copiado");}
+    catch(e){prompt("Copiá manualmente:",token);}
+  };
+  el.appendChild(cp);
+  box.appendChild(el);
+  while(box.children.length>4)box.firstChild.remove();
+  let done=false;
+  function dismiss(){if(done)return;done=true;el.classList.add("bye");setTimeout(()=>el.remove(),260);}
+  const closeBtn=el.querySelector(".tc");
+  el.addEventListener("dblclick",dismiss);
+  setTimeout(dismiss,30000);
+}
+
+/* ── confirm modal ── */
+let cfResolve=null;
+function askConfirm(title,text,yesLabel="Borrar"){
+  $("#cfTitle").textContent=title;$("#cfText").textContent=text;
+  const y=$("#cfYes");y.textContent=yesLabel;y.className="danger";
+  $("#confirmModal").classList.add("show");
+  return new Promise(res=>{cfResolve=res;});
+}
+function closeConfirm(v){
+  $("#confirmModal").classList.remove("show");
+  if(cfResolve){const r=cfResolve;cfResolve=null;r(v);}
+}
+function closeAdmDrawer(){$("#admDrawer").classList.remove("open");}
+function closeClDrawer(){$("#clDrawer").classList.remove("open");$("#clDrawerOv").classList.remove("show");}
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){
+    if($("#admDrawer").classList.contains("open"))closeAdmDrawer();
+    else if($("#clDrawer").classList.contains("open"))closeClDrawer();
+    else if($("#confirmModal").classList.contains("show"))closeConfirm(false);
+    else if($("#sshModal").classList.contains("show"))closeSsh();
+  }
+  if(e.key==="Enter"&&$("#login").style.display!=="none"){doLogin($("#loginBtn"));}
+});
+
+/* ══════════ LOGIN ══════════ */
+function togglePass(){const p=$("#pass");p.type=p.type==="password"?"text":"password";}
+async function doLogin(btn){
+  const u=$("#user"),pw=$("#pass"),msg=$("#loginMsg");setMsg(msg,"");
+  u.classList.remove("err");pw.classList.remove("err");
+  if(!u.value.trim()||!pw.value){
+    if(!u.value.trim())u.classList.add("err");
+    if(!pw.value)pw.classList.add("err");
+    setMsg(msg,"ingresá usuario y contraseña","err");return;
+  }
+  busy(btn,"Entrando…");
+  try{
+    const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:u.value.trim(),password:pw.value})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||r.status+" "+r.statusText);
+    session={role:d.role,token:d.token};
+    if(d.role==="client"){const q=await api("/quota");session.clientId=q.client_id;}
+    sessionStorage.setItem("nubecita",JSON.stringify(session));
+    enterApp();
+  }catch(e){setMsg(msg,"❌ "+e.message,"err");}
+  finally{unbusy(btn);}
+}
+$("#logoutBtn").onclick=()=>{
+  session=null;sessionStorage.removeItem("nubecita");
+  if(evWs){evWsAlive=false;try{evWs.close()}catch(e){}evWs=null;}setSyncDot();
+  $("#app").style.display="none";$("#app").innerHTML="";$("#tabs").style.display="none";
+  $("#login").style.display="";$("#who").textContent="";$("#logoutBtn").style.display="none";
+  $("#user").value="";$("#pass").value="";
+  toast("Sesión cerrada","info",2500);
+};
+
+function enterApp(){
+  $("#login").style.display="none";$("#app").style.display="";
+  $("#logoutBtn").style.display="";
+  $("#who").textContent=session.role==="admin"?"admin · "+brand.domain:session.clientId+" · "+brand.domain;
+  if(session.role==="admin"){$("#tabs").style.display="";renderTabs();}
+  enterApp.timer&&clearInterval(enterApp.timer);
+  enterApp.timer=setInterval(autoRefresh,30000);
+  connectEvents();
+  render();
+}
+
+/* ── WS /ws/events: estado de recursos en tiempo real ──
+   Abierto al entrar a la app; si cierra (p. ej. reinicio del backend) se
+   reconecta solo en 10 s. El auto-refresh de 30 s queda como safety net:
+   si el WS falla, todo sigue funcionando por polling. */
+let evWs=null,evWsAlive=false;
+function setSyncDot(){
+  const dot=$("#syncdot");if(!dot)return;
+  dot.title=evWsAlive?"ws: tiempo real (fallback polling 30 s)":"Actualización automática cada 30 s";
+}
+function connectEvents(){
+  if(!session)return;
+  if(evWs&&(evWs.readyState===WebSocket.CONNECTING||evWs.readyState===WebSocket.OPEN))return;
+  const proto=location.protocol==="https:"?"wss":"ws";
+  const ws=new WebSocket(`${proto}://${location.host}/ws/events?token=${encodeURIComponent(session.token)}`);
+  evWs=ws;
+  ws.onopen=()=>{evWsAlive=true;setSyncDot();};
+  ws.onmessage=e=>{
+    let d;try{d=JSON.parse(e.data)}catch(err){return;}
+    if(d.type==="hello"){evWsAlive=true;setSyncDot();return;}
+    if(d.type!=="resource")return;
+    applyResourceEvent(d);
+  };
+  ws.onclose=()=>{evWsAlive=false;evWs=null;setSyncDot();setTimeout(connectEvents,10000);};
+  ws.onerror=()=>{try{ws.close()}catch(err){}};
+}
+function applyResourceEvent(d){
+  // kind del evento: 'vm' | 'svc' (ref = vmid o job_id)
+  if(session.role==="client"){
+    if(d.client_id!==session.clientId)return; // solo mi rol
+    if(d.kind==="vm"){
+      const row=vmsCache.l.find(x=>String(x.ref_id)===String(d.ref));
+      if(row)row.status=d.status;
+      drawVms(vmsCache.l); // re-dibuja solo la tabla de VMs
+    }else{
+      const row=svcsCache.l.find(x=>String(x.ref_id)===String(d.ref));
+      if(row)row.status=d.status;
+      drawSvcs(svcsCache.l); // re-dibuja solo la tabla de servicios
+    }
+  }else if(session.role==="admin"){
+    // admin: re-dibuja solo la pestaña de recursos si está visible
+    if(adminBundleP&&adminTab==="resources"&&$("#resList"))renderResources();
+  }
+}
+/* Bundle admin diferido: app-admin.js se inyecta SOLO para role=admin;
+   los clientes nunca lo piden ni lo ejecutan. */
+let adminBundleP=null;
+function loadAdminBundle(){
+  if(adminBundleP)return adminBundleP;
+  adminBundleP=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="/app-admin.js";
+    s.onload=()=>res();
+    s.onerror=()=>{adminBundleP=null;rej(new Error("no se pudo cargar app-admin.js"));};
+    document.head.appendChild(s);
+  });
+  return adminBundleP;
+}
+function renderTabs(){
+  const tabs=[["overview","Resumen"],["resources","Recursos"],["users","Usuarios / Clientes"],["tickets","Tickets"]];
+  $("#tabs").innerHTML=tabs.map(([k,l])=>
+    `<button data-tab="${k}" class="${k===adminTab?"on":""}" onclick="setTab('${k}')">${l}</button>`).join("");
+}
+function setTab(t){adminTab=t;renderTabs();render();}
+function autoRefresh(){
+  if(!session)return;
+  if(session.role==="admin"){if(adminBundleP)adminRender();}else clientData();
+  flash($("#syncdot"));
+}
+
+async function render(){
+  const a=$("#app"); if(!session)return;
+  a.dataset.role=session.role;
+  try{
+    if(session.role==="admin"){await loadAdminBundle();await renderAdmin();}
+    else await renderClient();
+  }catch(e){errT(e.message);}
+}
+
+async function renderClient(){
+  const a=$("#app");
+  if(!a.querySelector("#clientRoot")) {a.innerHTML=clientHtml();renderClTabs();}
+  await clientData();
+}
+
+/* ══════════ CLIENTE ══════════ */
+let clientTab="res";
+function renderClTabs(){
+  const nav=$("#clTabs"); if(!nav)return;
+  const tabs=[["res","Recursos"],["cfg","Configuración"],["api","API"],["bugs","Soporte"]];
+  nav.innerHTML=tabs.map(([k,l])=>
+    `<button data-ctab="${k}" class="${k===clientTab?"on":""}" onclick="setClientTab('${k}')">${l}</button>`).join("");
+}
+function setClientTab(t){
+  clientTab=t;
+  const rp=$("#clResPane"),cp=$("#clCfgPane"),bp=$("#clBugsPane"),ap=$("#clApiPane");
+  if(rp)rp.style.display=t==="res"?"":"none";
+  if(cp){cp.style.display=t==="cfg"?"":"none"; if(t==="cfg")renderCfg();}
+  if(bp){bp.style.display=t==="bugs"?"":"none"; if(t==="bugs")renderBugs();}
+  if(ap){ap.style.display=t==="api"?"":"none"; if(t==="api")renderApi();}
+  renderClTabs();
+}
+function clientHtml(){return `
+  <div id="clientRoot">
+    <nav class="tabs" id="clTabs" style="margin-left:0;margin-bottom:2px"></nav>
+    <div id="clResPane">
+    <div class="statrow" id="quotaStats"></div>
+    <div id="lowBal"></div>
+    <div class="grid mt">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2 style="margin:0;flex:1">Mis VMs</h2>
+          <input id="vmSearch" class="srch" placeholder="Buscar por nombre o IP…" oninput="clientSearch('vm')">
+          <button onclick="openCreate('vm')" style="white-space:nowrap">+ Crear VM</button>
+        </div>
+        <div class="filt" id="vmFilt"></div>
+        <div id="vms" data-err="vms"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2 style="margin:0;flex:1">Mis servicios</h2>
+          <input id="svSearch" class="srch" placeholder="Buscar…" oninput="clientSearch('sv')">
+          <button onclick="openCreate('sv')" style="white-space:nowrap">+ Crear servicio</button>
+        </div>
+        <div class="filt" id="svFilt"></div>
+        <div id="svcs" data-err="svcs"></div>
+      </div>
+    </div>
+    </div>
+    <div id="clCfgPane" class="mt" style="display:none"></div>
+    <div id="clApiPane" class="mt" style="display:none"></div>
+    <div id="clBugsPane" class="mt" style="display:none"></div>
+  </div>`;}
+
+function skelTable(){return `<nc-skel-table rows="3" cols="6"></nc-skel-table>`;}
+let clientDataLoaded=false;
+async function clientData(){
+  if(!clientDataLoaded){ // primera carga: skeletons mientras llegan los datos
+    const v=$("#vms"),s=$("#svcs");
+    if(v)v.innerHTML=skelTable();
+    if(s)s.innerHTML=skelTable();
+  }
+  const [q,vms,svs,cr]=await Promise.all([cachedApi("/quota",15000),api("/vm"),api("/service"),cachedApi("/me/credits",15000).catch(()=>null)]);
+  clientDataLoaded=true;
+  const u=q.used,qu=q.quota;
+  const pct=(a,b)=>b?Math.round(a/b*100)+"%":"—";
+  const used=(k,uk,qq,unit="")=>`<div class="stat"><span class="k">${k}</span>
+    <span class="v">${uk}<small> / ${qq}${unit}</small></span>${bar(uk,qq)}
+    <span class="pct">${pct(uk,qq)} usado</span></div>`;
+  const crStat=cr?`<div class="stat"><span class="k">Créditos</span>
+    <span class="v">${fmtCr(cr.credits)}</span>
+    <span class="pct">${cr.cost_per_hour>0?`${fmtCr(cr.cost_per_hour)} cr/h · ~${cr.hours_left} h restantes`:"sin consumo (VMs detenidas)"}</span></div>`:"";
+  $("#quotaStats").innerHTML=
+    used("CPU",u.vm_cpu+u.c_cpu,qu.cpu," cores")+
+    used("RAM",(u.vm_ram+u.c_ram)/1024,qu.ram_mb/1024," GB")+
+    used("Disco",u.vm_disk+u.c_disk,qu.disk_gb," GB")+
+    used("VMs",u.vms,qu.max_vms)+
+    used("Servicios",u.containers,qu.max_containers)+crStat;
+  $("#lowBal").innerHTML=cr&&cr.low_balance
+    ?`<div class="lowbal">⚠ Quedan ~${Math.max(1,Math.ceil(cr.hours_left))} h de saldo — recargá créditos o detené VMs.</div>`
+    :"";
+  drawVms(vms);drawSvcs(svs);
+  refreshFilt();
+}
+
+/* ── pestaña Configuración (claves SSH + tokens API) ── */
+function renderCfg(){
+  const cp=$("#clCfgPane"); if(!cp)return;
+  cp.innerHTML=`
+    <div class="card"><h2>Consumo de créditos (últimos 30 días)</h2>
+      <div id="usageDaily" data-err="usageDaily"></div>
+      <div id="usageByRes"></div>
+    </div>
+    <div class="card mt"><h2>Conectar por SSH</h2>
+      <p class="muted" style="margin:0 0 4px">Tu VM es accesible como <code>ssh {host_id}@${esc(sshDom())}</code> — el usuario es el <b>SSH hostname</b> de tu VM.
+      El gateway central lo enruta a tu contenedor. Desde tu computadora se usa el túnel de Cloudflare, que <b>requiere <code>cloudflared</code> instalado en tu máquina</b> (gratis, ~10&nbsp;MB).</p>
+      <p class="hint" style="margin:8px 0 2px">1 · Instalá cloudflared: <a href="https://developers.cloudflare.com/tunnel/downloads/" target="_blank">descarga oficial</a></p>
+      <p class="hint" style="margin:4px 0 2px">2 · Agregá esto a <code>~/.ssh/config</code> (una sola vez):</p>
+      <pre id="sshCfg" class="codebox">Host ${esc(sshDom())}
+  IdentityFile ~/.ssh/id_ed25519
+  ProxyCommand cloudflared access ssh --hostname %h<button class="copybtn" onclick="copyText(document.getElementById('sshCfg').innerText,this)">📋 copiar</button></pre>
+      <p class="hint" style="margin:4px 0 2px">3 · Conectá: <code>ssh {host_id}@${esc(sshDom())}</code> (el usuario es el SSH hostname de tu VM).</p>
+      <p class="hint warn">⚠ Sin cloudflared: usá la terminal 🖥 SSH del navegador (requiere cargar tu clave privada abajo), o SSH a la IP interna si estás en la red del cluster.</p>
+    </div>
+    <div class="card mt"><h2>Mis claves SSH</h2>
+      <div id="keysList"></div>
+      <label>Clave(s) pública(s) para inyectar en VMs (una por línea)</label>
+      <textarea id="keyEdit" rows="4" placeholder="ssh-ed25519 AAAA… usuario@máquina" style="font:12px var(--mono)"></textarea>
+      <div class="msg" id="keyMsg"></div>
+      <div class="row" style="margin-top:8px"><button id="btnKeys" onclick="saveKeys(this)">Guardar claves públicas</button></div>
+      <label>Clave privada (solo para la terminal SSH en el navegador)</label>
+      <textarea id="privKey" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY----- …" style="font:12px var(--mono)"></textarea>
+      <div class="msg" id="privMsg"></div>
+      <div class="hint warn">⚠ La clave privada queda en el backend solo para abrir la sesión SSH. Usala solo para tus propias VMs.</div>
+      <div class="row" style="margin-top:8px"><button class="ghost" id="btnPriv" onclick="savePrivKey(this)">Guardar clave privada</button></div>
+    </div>
+    <div class="card mt"><h2>Tokens API</h2>
+      <p class="muted" style="margin:0 0 8px">Para usar el servicio por API: <code>Authorization: Bearer &lt;token&gt;</code> contra <code>https://${esc(brand.domain)}/</code> (ej. <code>GET /me/credits</code>, <code>GET /vm</code>).
+      El texto de un token solo se muestra al crearlo — guardalo en un lugar seguro. Documentación interactiva (Swagger): <a href="/docs" target="_blank">/docs</a>.</p>
+      <div id="tokensList" data-err="tokens"></div>
+      <div class="row" style="margin-top:12px;align-items:flex-end">
+        <div style="max-width:260px;flex:1"><label>Etiqueta</label><input id="tokLabel" placeholder="ej. notebook, CI, script…"></div>
+        <button onclick="createToken(this)" style="white-space:nowrap">+ Crear token</button>
+      </div>
+      <div id="tokNew"></div>
+    </div>`;
+  loadCfgData();
+  loadUsage();
+}
+// consumo de créditos: tabla por día (delta con color ok/bad + mini barra) + desglose por VM
+async function loadUsage(){
+  const host=$("#usageDaily"); if(!host)return;
+  let d; try{d=await api("/me/usage?days=30");}
+  catch(e){host.innerHTML=`<div class="msg err">${esc(e.message)}</div>`;return;}
+  host.innerHTML=d.by_day.length
+    ?`<div class="tblwrap"><table><tr><th>Fecha</th><th>Delta (cr)</th><th>Eventos</th><th style="width:25%"></th></tr>
+      ${d.by_day.map(r=>{
+        const neg=r.delta_net<0;
+        const rows=[...d.by_day].map(x=>Math.abs(x.delta_net)).sort((a,b)=>a-b);
+        const p=rows.length?Math.max(2,Math.round(Math.abs(r.delta_net)/rows[rows.length-1]*100)):0;
+        return `<tr>
+          <td class="muted" style="font-size:12px">${fdate(r.date)}</td>
+          <td class="mono" style="font-size:12px;color:${neg?"var(--bad)":"var(--ok)"}">${neg?"":"+"}${fmtCr(r.delta_net)}</td>
+          <td class="muted" style="font-size:12px">${r.events_n}</td>
+          <td><div class="bar" style="margin:0"><i style="width:${p}%"></i></div></td></tr>`;}).join("")}
+      </table></div>`
+    :`<div class="empty">Sin consumo en los últimos 30 días.</div>`;
+  const br=$("#usageByRes");
+  if(!br)return;
+  br.innerHTML=d.by_resource
+    ?`<div class="hint" style="margin-top:10px">Desglose por recurso (facturación solo):</div>
+      <div class="tblwrap" style="margin-top:4px"><table><tr><th>Recurso</th><th>Delta (cr)</th></tr>
+      ${Object.entries(d.by_resource).sort((a,b)=>a[1]-b[1]).map(([k,v])=>
+        `<tr><td class="mono" style="font-size:12px">${esc(k)}</td>
+         <td class="mono" style="font-size:12px;color:${v<0?"var(--bad)":"var(--ok)"}">${v<0?"":"+"}${fmtCr(v)}</td></tr>`).join("")}
+      </table></div>`
+    :"";
+}
+async function loadCfgData(){
+  try{
+    const [keys,pk]=await Promise.all([api("/me/ssh-keys"),api("/me/ssh-private-key").catch(()=>({has:false}))]);
+    const list=(keys.ssh_key||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    const kl=$("#keysList"); if(kl)kl.innerHTML=list.length
+      ?`<pre class="codebox" style="max-height:160px;margin:0 0 6px">${esc(keys.ssh_key)}</pre>
+        <div class="msg ok" style="margin:0 0 10px">${list.length} clave(s) — se inyectan en VMs nuevas automáticamente.</div>`
+      :`<div class="msg info" style="margin-bottom:10px">Sin claves cargadas: tus VMs no tendrán acceso SSH.</div>`;
+    const ke=$("#keyEdit"); if(ke)ke.value=keys.ssh_key||"";
+    const pm=$("#privMsg"); if(pm)pm.textContent=pk.has?"✔ Clave privada cargada (usada por la terminal SSH del navegador).":"";
+  }catch(e){errT(e.message);}
+  await loadTokens();
+}
+let lastNewToken=null; // {id,label,token} — el texto del token recién creado
+async function loadTokens(){
+  const host=$("#tokensList"); if(!host)return;
+  let d; try{d=await api("/me/tokens");}
+  catch(e){host.innerHTML=`<div class="msg err">${esc(e.message)}</div>`;return;}
+  tokensCache=d.tokens;
+  host.innerHTML=d.tokens.length
+    ?`<div class="tblwrap"><table><tr><th>Token</th><th>Creado</th><th>Último uso</th><th></th></tr>
+      ${d.tokens.map(t=>`<tr>
+        <td class="mono" style="font-size:12px">${esc(t.label||"sin etiqueta")}${t.is_current?' <span class="pill other">este navegador</span>':""}</td>
+        <td class="muted" style="font-size:12px">${fdate(t.created_at)}</td>
+        <td class="muted" style="font-size:12px">${t.last_used_at?String(t.last_used_at).slice(0,16).replace("T"," ")+" UTC":"nunca"}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="ghost sm" onclick="renameToken('${esc(t.id)}',this)" title="Renombrar">✏️</button>
+          ${t.is_current?"":`<button class="danger sm" onclick="revokeToken('${esc(t.id)}','${esc(t.label||"sin etiqueta")}',this)" title="Revocar">✕</button>`}
+        </td></tr>`).join("")}
+      </table></div>`
+    :`<div class="empty">Sin tokens. Creá uno abajo para usar la API.</div>`;
+  renderTokNew();
+}
+function renderTokNew(){
+  const box=$("#tokNew"); if(!box)return;
+  if(!lastNewToken){box.innerHTML="";return;}
+  box.innerHTML=`<div class="msg ok" style="margin-top:12px">Token «${esc(lastNewToken.label)}» creado. <b>¡Cópialo ahora — no se puede volver a leer!</b></div>
+    <pre class="codebox" style="margin:0 0 6px">${esc(lastNewToken.token)}<button class="copybtn" onclick="copyText(${JSON.stringify(lastNewToken.token)},this)">📋 copiar</button></pre>
+    <div class="hint">Usalo así: <code>curl -H "Authorization: Bearer ${esc(lastNewToken.token)}" https://${esc(brand.domain)}/me/credits</code></div>`;
+}
+async function createToken(btn){
+  busy(btn,"Creando…");
+  try{
+    const r=await api("/me/tokens","POST",{label:$("#tokLabel").value.trim()});
+    lastNewToken={id:r.id,label:r.label,token:r.token};
+    const l=$("#tokLabel"); if(l)l.value="";
+    okT("Token creado (el texto se muestra una sola vez)");
+    await loadTokens();
+  }catch(e){errT(e.message);}
+  finally{unbusy(btn);}
+}
+async function renameToken(id,btn){
+  const cur=tokensCache.find(t=>t.id===id);
+  const nl=prompt("Nueva etiqueta:",(cur&&cur.label)||"");
+  if(nl===null)return;
+  try{await api("/me/tokens/"+encodeURIComponent(id),"PATCH",{label:nl.trim()});okT("etiqueta actualizada");await loadTokens();}
+  catch(e){errT(e.message);}
+}
+async function revokeToken(id,label,btn){
+  if(!await askConfirm(`Revocar token «${label}»`,"Cualquier uso con este token deja de funcionar de inmediato. Esta acción no se puede deshacer."))return;
+  if(btn)busy(btn,"Revocando…");
+  try{await api("/me/tokens/"+encodeURIComponent(id),"DELETE");okT("token revocado");await loadTokens();}
+  catch(e){errT(e.message);}
+  finally{if(btn)unbusy(btn);}
+}
+let tokensCache=[];
+function vmsCache(list){vmsCache.l=list;} vmsCache.l=[];
+function svcsCache(list){svcsCache.l=list;} svcsCache.l=[];
+function drawFilt(elId,key){
+  const el=$("#"+elId);if(!el)return;
+  const opts=key==="vm"
+    ?[["all","Todas"],["running","Running"],["provisioning","Provisioning"],["stopped","Stopped"]]
+    :[["all","Todas"],["running","Running"],["stopped","Stopped"]];
+  el.innerHTML=opts.map(([k,l])=>`<button class="${k===clientFilter?"on":""}" onclick="setFilt('${key}','${k}')">${l}</button>`).join("");
+}
+function statusMatch(st){return clientFilter==="all"||st===clientFilter;}
+function setFilt(key,v){
+  if(key==="vm")clientFilter=v;
+  drawFilt(key==="vm"?"vmFilt":"svFilt",key);
+  if(key==="vm")drawVms(vmsCache.l);else drawSvcs(svcsCache.l);
+}
+let vmSearchQ=""; let svSearchQ="";
+function clientSearch(key){
+  const el=$(key==="vm"?"#vmSearch":"#svSearch");
+  if(!el)return;
+  const q=el.value.trim().toLowerCase();
+  if(key==="vm"){vmSearchQ=q;drawVms(vmsCache.l);}
+  else{svSearchQ=q;drawSvcs(svcsCache.l);}
+}
+function vmSearchMatch(r){
+  if(!vmSearchQ)return true;
+  const ip=vmIp(r.ref_id, r.subnet ?? r.client_subnet);
+  return (r.name||"").toLowerCase().includes(vmSearchQ)||(ip&&ip!=="—"&&ip.includes(vmSearchQ));
+}
+function svSearchMatch(r){
+  if(!svSearchQ)return true;
+  return (r.name||"").toLowerCase().includes(svSearchQ);
+}
+function refreshFilt(){drawFilt("vmFilt","vm");drawFilt("svFilt","sv");}
+function drawVms(vms){
+  vmsCache.l=vms;
+  const show=vms.filter(r=>statusMatch(r.status));
+  const vis=show.filter(vmSearchMatch);
+  const host=$("#vms");if(!host)return;
+  if(!vis.length){
+    host.innerHTML=`<div class="empty">${vmSearchQ
+      ?`Sin VMs que coincidan con «${esc(vmSearchQ)}».`
+      :(clientFilter==="all"
+      ?"Sin VMs todavía. <button class=\"ghost sm\" style=\"margin-left:8px\" onclick=\"openCreate('vm')\">Crear una</button>"
+      :"Sin VMs en ese estado.")}</div>`;
+    drawFilt("vmFilt","vm");return;
+  }
+  host.innerHTML=`<div class="tblwrap"><table><tr><th>Nombre</th><th>SSH</th><th>CPU</th><th>RAM</th><th>Disco</th><th>IP</th><th>Estado</th><th></th></tr>
+    ${vis.map(r=>`<tr class="${r.status==="deleted"?"rowdead":""}">
+      <td><b style="cursor:pointer" onclick="openVmDetail('${esc(r.ref_id)}')">${esc(r.name)}</b>${(r.gpu_model||r.gpu_mapping)?` <span style="font-size:10px;background:var(--acc-dim);color:var(--warm);padding:1px 6px;border-radius:8px;vertical-align:middle">GPU${r.gpu_model?" "+esc(r.gpu_model):""}</span>`:""}</td>
+      <td class="mono" style="font-size:12px">${r.host_id?esc(r.host_id+"@"+sshDom()):"—"}</td>
+      <td>${r.cpu??"—"}</td><td>${r.ram_mb?Math.round(r.ram_mb/1024)+" GB":"—"}</td><td>${r.disk_gb?r.disk_gb+" GB":"—"}</td>
+      <td class="mono" style="font-size:12px">${r.status==="deleted"?"—":vmIp(r.ref_id, r.subnet ?? r.client_subnet)}</td>
+      <td>${pill(r.status)}</td>
+      <td style="white-space:nowrap;text-align:right">${r.status!=="deleted"
+        ?`${r.status==="stopped"?`<button class="ghost sm" onclick="vmPower('${esc(r.ref_id)}','start',this)" title="Arrancar VM">▶</button>`
+          :r.status==="running"?`<button class="ghost sm" onclick="vmPower('${esc(r.ref_id)}','stop',this)" title="Detener VM">⏸</button>`
+          :`<span style="opacity:.45;font-size:12px" title="En preparación — aún no se puede arrancar/detener">—</span>`}
+          <button class="ghost sm" onclick="openSsh('${esc(r.ref_id)}','${esc(r.name)}')" title="Terminal SSH en el navegador">🖥</button>
+          <button class="ghost sm" onclick="copyText('ssh ${esc(r.host_id)}@${esc(sshDom())}',this)" title="Copiar comando SSH">📋</button>
+          <button class="ghost sm" onclick="refreshKeys('${esc(r.ref_id)}','${esc(r.name)}')" title="Reinyectar mis claves SSH en esta VM">🔑</button>
+          <button class="danger sm" onclick="delVm('${esc(r.ref_id)}','${esc(r.name)}',this)">✕</button>`:""}</td></tr>`).join("")}
+  </table></div>`;
+}
+function drawSvcs(svs){
+  svcsCache.l=svs;
+  const show=svs.filter(r=>statusMatch(r.status));
+  const vis=show.filter(svSearchMatch);
+  const host=$("#svcs");if(!host)return;
+  if(!vis.length){
+    host.innerHTML=`<div class="empty">${svSearchQ?`Sin servicios que coincidan con «${esc(svSearchQ)}».`
+      :(clientFilter==="all"?"Sin servicios todavía.":"Sin servicios en ese estado.")}</div>`;
+    return;
+  }
+  host.innerHTML=`<div class="tblwrap"><table><tr><th>Job</th><th>CPU</th><th>RAM</th><th>Estado</th><th></th></tr>
+    ${vis.map(r=>`<tr class="${r.status==="deleted"?"rowdead":""}">
+      <td class="mono" style="font-size:12px">${esc(r.name)}</td><td>${r.cpu??"—"}</td>
+      <td>${r.ram_mb?r.ram_mb+" MB":"—"}</td><td>${pill(r.status)}</td>
+      <td style="text-align:right;white-space:nowrap">${r.status!=="deleted"
+        ?`${r.status==="stopped"?`<button class="ghost sm" onclick="svPower('${esc(r.ref_id)}','start',this)" title="Arrancar servicio">▶</button>`
+          :r.status==="running"?`<button class="ghost sm" onclick="svPower('${esc(r.ref_id)}','stop',this)" title="Detener servicio">⏸</button>`
+          :`<span style="opacity:.45;font-size:12px" title="En preparación">—</span>`}
+          <button class="ghost sm" onclick="openSvLogs('${esc(r.ref_id)}','${esc(r.name)}')" title="Logs del servicio">📄</button>
+          <button class="ghost sm" onclick="svScale('${esc(r.ref_id)}','${esc(r.name)}',this)" title="Escalar replicas">⚖</button>
+          <button class="danger sm" onclick="delSv('${esc(r.ref_id)}','${esc(r.name)}',this)">✕</button>`:""}</td></tr>`).join("")}
+  </table></div>`;
+}
+
+/* ── modal de creación ── */
+/* Espeja _sanitename del backend: lowercase, [^a-z0-9-]→'-', colapso, max 20 */
+function sanitizedName(name,fallback){
+  const s=String(name||"").toLowerCase().trim().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,20);
+  return s||fallback;
+}
+function namePreview(){
+  const el=$("#cNameOut"),inp=$("#cName");
+  if(!el||!inp)return;
+  const raw=inp.value.trim(),norm=sanitizedName(raw,"recurso");
+  el.innerHTML=(raw&&norm!==raw.toLowerCase())
+    ?`<div class="hint" style="margin-top:4px">Se creará como: <span class="ndiff">${esc(norm)}</span></div>`:"";
+}
+const PRESETS={
+  tiny:  {cpu:1,ram:2,  disk:10,gpu:null,rep:1,rammb:512},
+  small: {cpu:2,ram:4,  disk:20,gpu:null,rep:2,rammb:1024},
+  medium:{cpu:4,ram:16, disk:40,gpu:null,rep:2,rammb:4096},
+  gpu:   {cpu:4,ram:16, disk:40,gpu:"RTX A5000",rep:1,rammb:null},
+};
+function pickPreset(name,btn){
+  const p=PRESETS[name]; if(!p)return;
+  const m=$("#createModal"); if(!m)return;
+  const set=(id,v)=>{const el=m.querySelector("#"+id); if(el)el.value=v;};
+  set("cCpu",p.cpu);
+  if(name==="gpu")set("cGpu",p.gpu);
+  set("cDisk",p.disk);
+  if(m.querySelector("#cRep")){ // modo servicio: RAM en MB + replicas
+    set("cRam",p.rammb); set("cRep",p.rep);
+  }else{ // modo VM: RAM en GB
+    set("cRam",p.ram);
+  }
+  const gpu=m.querySelector("#cGpu");
+  if(gpu&&name==="gpu"&&[...gpu.options].every(o=>o.value!==p.gpu))gpu.value=gpu.options[1]?gpu.options[1].value:p.gpu;
+  // re-disparar el estimador de costo
+  ["cCpu","cRam","cDisk","cRep"].forEach(id=>{
+    const el=m.querySelector("#"+id); if(el)el.dispatchEvent(new Event("input"));
+  });
+  const gp=m.querySelector("#cGpu"); if(gp)gp.dispatchEvent(new Event("change"));
+  const row=btn?btn.parentElement:$("#cPresets");
+  if(row)row.querySelectorAll("button").forEach(b=>b.classList.remove("on"));
+  if(btn)btn.classList.add("on");
+}
+async function openCreate(kind){
+  closeCreate();
+  const isVm=kind==="vm";
+  if(isVm){
+    // Camino moderno: si la isla React está (o se puede cargar), el wizard
+    // React Query toma el modal de VM. Cualquier falla → fallback vanilla.
+    try{
+      if(await ensureIsland()){await openCreateVmIsland();return;}
+    }catch(e){/* fallback vanilla */}
+  }
+  const m=document.createElement("div");m.id="createModal";m.className="modal show";
+  m.innerHTML=`<div class="cbox" style="width:min(520px,92vw)">
+    <h3>${isVm?"Crear VM":"Crear servicio (contenedor)"}</h3>
+    <p class="muted" style="margin-top:0">${isVm
+      ?"Ubuntu 24.04 · IP fija en tu LAN · hostname SSH público propio. Puede tardar ~1 min."
+      :"Nomad + docker en el cluster."}</p>
+    ${isVm?`
+      <div class="fld"><label>Nombre</label><input id="cName" placeholder="mi-vm" style="margin-top:0" oninput="namePreview()"></div>
+      <div id="cNameOut"></div>
+      <div class="presetrow" id="cPresets">
+        <span class="ptip">Presets:</span>
+        <button data-p="tiny" onclick="pickPreset('tiny',this)">Tiny 1c/2G/10G</button>
+        <button data-p="small" class="on" onclick="pickPreset('small',this)">Small 2c/4G/20G</button>
+        <button data-p="medium" onclick="pickPreset('medium',this)">Medium 4c/16G/40G</button>
+        <button data-p="gpu" onclick="pickPreset('gpu',this)">GPU 4c/16G/40G+A5000</button>
+      </div>
+      <div class="row">
+        <div class="fld"><label>CPU (cores)</label><input id="cCpu" type="number" value="2" min="1"></div>
+        <div class="fld"><label>RAM (GB)</label><input id="cRam" type="number" value="2" min="1"></div>
+        <div class="fld"><label>Disco (GB)</label><input id="cDisk" type="number" value="10" min="1"></div>
+      </div>
+      <div class="fld"><label>GPU (opcional)</label>
+        <select id="cGpu" style="margin-top:0"><option value="">Sin GPU (contenedor LXC)</option></select>
+        <p class="hint" style="margin:6px 0 0">Con GPU: VM QEMU passthrough, disco mínimo 8 GB. Puede tardar 2-3 min.</p>`
+      :`
+      <div class="fld"><label>Nombre</label><input id="cName" placeholder="mi-svc" style="margin-top:0" oninput="namePreview()"></div>
+      <div id="cNameOut"></div>
+      <div class="presetrow" id="cPresets">
+        <span class="ptip">Presets:</span>
+        <button data-p="tiny" onclick="pickPreset('tiny',this)">Tiny 1c/512M</button>
+        <button data-p="small" class="on" onclick="pickPreset('small',this)">Small 2c/1G/2rep</button>
+        <button data-p="medium" onclick="pickPreset('medium',this)">Medium 4c/4G/2rep</button>
+      </div>
+      <div class="fld"><label>Imagen</label><input id="cImg" value="nginx:alpine"></div>
+      <div class="row">
+        <div class="fld"><label>Replicas</label><input id="cRep" type="number" value="2" min="1"></div>
+        <div class="fld"><label>CPU (cores)</label><input id="cCpu" type="number" value="2" min="1"></div>
+        <div class="fld"><label>RAM (MB)</label><input id="cRam" type="number" value="1024" min="1"></div>
+      </div>`}
+    <div class="costbox" id="cCost" style="display:none"></div>
+    <div class="msg" id="cMsg"></div>
+    <div class="cbtns">
+      <button class="ghost" onclick="closeCreate()">Cancelar</button>
+      <button id="cGo" onclick="submitCreate('${kind}',this)">Crear</button>
+    </div></div>`;
+  m.addEventListener("click",e=>{if(e.target===m)closeCreate();});
+  document.body.appendChild(m);
+  if(isVm)populateGpuOptions(m);
+  attachCostEstimator(m,kind);
+  setTimeout(()=>{const f=m.querySelector("#cName");if(f)f.focus();},60);
+}
+async function attachCostEstimator(m,kind){
+  const box=m.querySelector("#cCost"); if(!box) return;
+  let rates=null,credits=null;
+  try{const [r,c]=await Promise.all([cachedApi("/me/rates",300000),cachedApi("/me/credits",15000).catch(()=>null)]);
+    // /me/rates devuelve {rates_per_hour:{...}} (app.py my_rates); 'rates' solo
+    // existe como fallback histórico. Sin esto el box quedaba oculto siempre.
+    rates=(r&&(r.rates_per_hour||r.rates))||null;credits=(c&&typeof c.credits==="number")?c.credits:null;}catch(e){}
+  if(!rates){box.style.display="none";return;} // sin tasas: ocultar sin romper el modal
+  const num=el=>Math.max(0,parseFloat(el&&el.value)||0);
+  const recalc=()=>{
+    let cost=0;
+    if(kind==="vm"){
+      const cpu=num(m.querySelector("#cCpu")),ram=num(m.querySelector("#cRam")),disk=num(m.querySelector("#cDisk"));
+      cost=cpu*(rates.cpu||0)+ram*(rates.ram_gb||0)+disk*(rates.disk_gb||0)
+        +((m.querySelector("#cGpu")&&m.querySelector("#cGpu").value)?(rates.gpu||0):0);
+    }else{
+      const cpu=num(m.querySelector("#cCpu")),ram=num(m.querySelector("#cRam")),rep=num(m.querySelector("#cRep"));
+      cost=(cpu*(rates.cpu||0)+ram/1024*(rates.ram_gb||0))*rep;
+    }
+    let html=`<div class="ck">Costo estimado</div><div class="cv">${fmtCr(cost)} créditos/hora</div>`;
+    if(credits!==null){
+      if(cost>0&&credits<cost)
+        html+=`<div class="hint warn">Saldo insuficiente para 1 h (tenés ${fmtCr(credits)} cr) — la creación fallará con 402.</div>`;
+      else if(cost>0)
+        html+=`<div class="hint">≈ ${Math.max(0,Math.floor(credits/cost))} h restantes con tu saldo actual</div>`;
+    }
+    box.style.display="";box.innerHTML=html;
+  };
+  (kind==="vm"?["cCpu","cRam","cDisk"]:["cRep","cCpu","cRam"])
+    .forEach(id=>{const el=m.querySelector("#"+id);if(el)el.addEventListener("input",recalc);});
+  const gpu=m.querySelector("#cGpu"); if(gpu)gpu.addEventListener("change",recalc);
+  recalc();
+}
+async function populateGpuOptions(m){
+  const sel=m.querySelector("#cGpu"); if(!sel) return;
+  try{
+    const list=await cachedApi("/api/gpus",300000);
+    sel.innerHTML='<option value="">Sin GPU (contenedor LXC)</option>'+
+      list.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    sel.onchange=()=>{
+      if(sel.value && m.querySelector("#cDisk")){
+        const d=m.querySelector("#cDisk");
+        if((+d.value||0)<8){d.value=8;}
+      }
+    };
+  }catch(e){
+    // sin inventario (backend caído o sin GPUs): seguir con solo "Sin GPU"
+  }
+}
+/* ── isla React (<nubecita-launch-wizard>) ────────────────────────────────
+   Camino de integración moderno: si web/react-island.js está deployado,
+   «+ Crear VM» abre el wizard React (React Query) dentro del mismo modal.
+   El island se carga LAZY (script dinámico) solo al primer clic; si 404 o
+   falla el load, window.NubecitaWizard queda sin definir y el modal vanilla
+   de siempre sigue siendo el fallback — el vanilla NUNCA se reemplaza. */
+let islandLoad=null; // Promise<boolean> — se resuelve una sola vez
+function ensureIsland(){
+  if(islandLoad)return islandLoad;
+  islandLoad=new Promise(res=>{
+    const s=document.createElement("script");
+    s.src="/react/island.js";
+    s.onload=()=>res(!!window.NubecitaWizard);
+    s.onerror=()=>res(false);
+    document.head.appendChild(s);
+  });
+  return islandLoad;
+}
+async function openCreateVmIsland(){
+  const m=document.createElement("div");m.id="createModal";m.className="modal show";
+  m.innerHTML=`<div class="cbox" style="width:min(560px,92vw)">
+    <h3>Crear VM <span class="muted" style="font-size:11px">· wizard React</span></h3>
+    <nubecita-launch-wizard></nubecita-launch-wizard>
+    <div class="cbtns" style="margin-top:12px">
+      <button class="ghost" onclick="closeCreate()">Cancelar</button>
+    </div></div>`;
+  m.addEventListener("click",e=>{if(e.target===m)closeCreate();});
+  // Mismo contrato que submitCreate: la isla despacha 'nc-created' (composed,
+  // atraviesa la shadow root) con la fila optimista ya formada.
+  m.addEventListener("nc-created",async e=>{
+    const r=e.detail;
+    insertVmRow(r);
+    okT(`VM en preparación${r.gpu_mapping?` · GPU ${r.gpu_model||r.gpu_mapping}`:""} · ${r.name} — aparece como «provisioning» y pasa a running en ~1 min.`);
+    closeCreate();
+    await clientData();
+  });
+  document.body.appendChild(m);
+}
+function closeCreate(){const m=$("#createModal");if(m)m.remove();}
+/* Fila optimista: insertar la fila nueva en el cache y re-dibujar SIN esperar
+   al re-fetch de clientData() — la VM aparece en pantalla de inmediato (<2s). */
+function insertVmRow(r){
+  vmsCache.l=[...vmsCache.l.filter(x=>x.ref_id!==r.ref_id),r];
+  drawVms(vmsCache.l);
+}
+function insertSvcRow(r){
+  svcsCache.l=[...svcsCache.l.filter(x=>x.ref_id!==r.ref_id),r];
+  drawSvcs(svcsCache.l);
+}
+async function submitCreate(kind,btn){
+  const isVm=kind==="vm";
+  busy(btn,"Creando…");
+  try{
+    if(isVm){
+      const gpuModel=$("#cGpu").value||"";
+      const r=await api("/vm","POST",{name:$("#cName").value.trim()||null,
+        cpu:+$("#cCpu").value,ram_gb:+$("#cRam").value,disk_gb:+$("#cDisk").value,
+        gpu:!!gpuModel,gpu_model:gpuModel});
+      // Fila optimista en el cache local: la VM sale en pantalla de inmediato,
+      // con status='provisioning' y los campos que ya conocemos. El WS /ws/events
+      // la actualiza a 'running' cuando termina el background (polling 30s de
+      // respaldo si el socket está caído).
+      const [ip]=String(r.ip||"").split("/");
+      insertVmRow({ref_id:String(r.vmid),name:r.name,cpu:r.cpu,ram_mb:r.ram_gb*1024,
+        disk_gb:r.disk_gb,status:"provisioning",host_id:r.host_id||null,
+        subnet:ip?parseInt(ip.split(".")[2]):null,
+        gpu_mapping:r.gpu?r.gpu_model||"gpu":null,gpu_model:r.gpu_model||null});
+      okT(`VM en preparación${r.gpu?` · GPU ${r.gpu_model||""}`.trim():""} · ${r.name}${r.ip?` · ${r.ip}`:""} — aparece como «provisioning» y pasa a running en ~1 min${r.gpu?" (2-3 min con GPU)":""}.`);
+      closeCreate();
+      cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");
+      await clientData();
+    }else{
+      const r=await api("/service","POST",{name:$("#cName").value.trim(),image:$("#cImg").value.trim(),
+        cpu:+$("#cCpu").value,ram_mb:+$("#cRam").value,replicas:+$("#cRep").value});
+      insertSvcRow({ref_id:r.job_id,name:r.name,cpu:r.cpu,ram_mb:r.ram_mb,status:"running"});
+      okT(`Servicio ${r.job_id} creado`);
+      closeCreate();
+      cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");
+      await clientData();
+    }
+  }catch(e){errT(e.message);}
+  finally{unbusy(btn);}
+}
+/* ── drawer de detalle de VM (clic en el nombre) ── */
+let ratesCache=null;
+async function openVmDetail(refId){
+  const row=vmsCache.l.find(x=>String(x.ref_id)===String(refId));
+  const dr=$("#clDrawer"); if(!dr||!row)return;
+  let rates=ratesCache;
+  if(!rates){try{const r=await cachedApi("/me/rates",300000);rates=ratesCache=(r&&r.rates)||null;}catch(e){}}
+  const cost=rates?row.cpu*(rates.cpu||0)+(row.ram_mb?row.ram_mb/1024:0)*(rates.ram_gb||0)+(row.disk_gb||0)*(rates.disk_gb||0)
+    +(row.gpu_mapping?(rates.gpu||0):0):null;
+  const ip=vmIp(row.ref_id,row.subnet??row.client_subnet);
+  const st=row.status;
+  const powerBtn=st==="stopped"
+    ?`<button class="ghost" onclick="vmPower('${esc(row.ref_id)}','start',this)">▶ Arrancar</button>`
+    :st==="running"
+    ?`<button class="ghost" onclick="vmPower('${esc(row.ref_id)}','stop',this)">⏸ Detener</button>`
+    :`<span class="muted" style="font-size:12px">en preparación…</span>`;
+  dr.innerHTML=`
+    <div class="dh"><b>${esc(row.name||("VM "+row.ref_id))}</b>${pill(st)}
+      <button onclick="closeClDrawer()" title="Cerrar (Esc)">✕</button></div>
+    <div class="sec"><div class="k">Especificaciones</div>
+      <div class="v">${row.cpu??"—"} cores · ${row.ram_mb?Math.round(row.ram_mb/1024)+" GB":"—"} RAM · ${row.disk_gb?row.disk_gb+" GB":"—"} disco</div>
+      ${row.gpu_mapping?`<div class="v" style="margin-top:4px"><span style="font-size:11px;background:var(--acc-dim);color:var(--warm);padding:1px 6px;border-radius:8px">GPU${row.gpu_model?" "+esc(row.gpu_model):""}</span></div>`:""}</div>
+    <div class="sec"><div class="k">Red</div>
+      <div class="v mono" style="font-size:13px">${ip!=="—"&&ip?esc(ip):"—"}<br>${row.host_id?esc(row.host_id+"@"+sshDom()):"—"}</div></div>
+    ${cost!==null?`<div class="sec"><div class="k">Costo estimado</div><div class="v">${fmtCr(cost)} cr/h</div></div>`:""}
+    <div class="dacts">${powerBtn}
+      <button class="ghost" onclick="openSsh('${esc(row.ref_id)}','${esc(row.name)}')">🖥 Terminal SSH</button>
+      <button class="ghost" onclick="copyText('ssh ${esc(row.host_id)}@${esc(sshDom())}',this)">📋 Copiar SSH</button>
+      <button class="ghost" onclick="refreshKeys('${esc(row.ref_id)}','${esc(row.name)}')">🔑 Reinyectar claves</button>
+      <button class="danger" onclick="delVm('${esc(row.ref_id)}','${esc(row.name)}',this)">✕ Borrar</button></div>`;
+  dr.classList.add("open");$("#clDrawerOv").classList.add("show");
+}
+/* Start/stop de una VM del cliente: el backend espera a PVE (igual que admin)
+   y actualiza el ledger; acá se muestra busy hasta que responda. */
+async function vmPower(vmid,action,btn){
+  const label=action==="start"?"Arrancando…":"Deteniendo…";
+  const what=action==="start"?"arrancar":"detener";
+  if(btn)busy(btn,label);
+  const row=vmsCache.l.find(x=>String(x.ref_id)===String(vmid));
+  const prev=row?row.status:null;
+  if(row&&action==="start")row.status="provisioning";
+  if(row)drawVms(vmsCache.l);
+  try{
+    const r=await api("/vm/"+vmid+"/"+action,"POST");
+    toast(`VM ${vmid}: ${what} → «${r.status||"ok"}»`,"ok");
+    cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");
+  }catch(e){
+    if(row&&prev!==null)row.status=prev;
+    if(row)drawVms(vmsCache.l);
+    errT(e.message);
+  }
+  finally{if(btn)unbusy(btn);await clientData();}
+}
+
+async function delVm(v,n,btn){
+  if(!await askConfirm(`Borrar VM «${n}»`,"La VM se detiene y se destruye. Esta acción no se puede deshacer (puede tardar ~1 min)."))return;
+  if(btn)busy(btn);
+  try{await api("/vm/"+v,"DELETE");okT(`VM ${n} eliminada`);cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");}
+  catch(e){errT(e.message);}
+  if(btn)unbusy(btn);
+  await clientData();
+}
+async function delSv(j,n,btn){
+  if(!await askConfirm(`Borrar servicio «${n||j}»`,"El job se elimina de Nomad."))return;
+  if(btn)busy(btn);
+  try{await api("/service/"+encodeURIComponent(j),"DELETE");okT(`Servicio ${n||j} eliminado`);cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");}
+  catch(e){errT(e.message);}
+  if(btn)unbusy(btn);
+  await clientData();
+}
+/* Start/stop de un servicio Nomad: el backend detiene/re-leva el job en Nomad
+   (sin purgar) y actualiza el ledger; acá se muestra busy hasta que responda. */
+async function svPower(j,action,btn){
+  const label=action==="start"?"Arrancando…":"Deteniendo…";
+  const what=action==="start"?"arrancar":"detener";
+  if(btn)busy(btn,label);
+  const row=svcsCache.l.find(x=>String(x.ref_id)===String(j));
+  const prev=row?row.status:null;
+  if(row&&action==="start")row.status="provisioning";
+  if(row)drawSvcs(svcsCache.l);
+  try{
+    const r=await api("/service/job/"+encodeURIComponent(j)+"/"+action,"POST");
+    toast(`Servicio ${j}: ${what} → «${r.status||"ok"}»`,"ok");
+    cacheBust("/me/");cacheBust("/quota");cacheBust("/vm");
+  }catch(e){
+    if(row&&prev!==null)row.status=prev;
+    if(row)drawSvcs(svcsCache.l);
+    errT(e.message);
+  }
+  finally{if(btn)unbusy(btn);await clientData();}
+}
+function closeSvLogs(){const m=$("#svLogsModal");if(m)m.classList.remove("show");}
+async function openSvLogs(j,n){
+  let m=$("#svLogsModal");
+  if(!m){
+    m=document.createElement("div");m.id="svLogsModal";m.className="modal";
+    m.innerHTML=`<div class="box" style="width:min(820px,94vw);height:min(560px,84vh)">
+      <div class="mbar"><b style="font:600 14px var(--disp)">Logs · <span id="svLogsTitle"></span></b>
+        <span style="flex:1"></span><button class="ghost sm" onclick="closeSvLogs()">✕ Cerrar</button></div>
+      <pre class="codebox" id="svLogsPre" style="flex:1;min-height:0;margin:0;max-height:none;white-space:pre-wrap"></pre>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  $("#svLogsTitle").textContent=n||j;
+  const pre=$("#svLogsPre");
+  pre.textContent="Cargando logs…";
+  m.classList.add("show");
+  try{
+    const r=await api("/service/job/logs?job_id="+encodeURIComponent(j));
+    pre.textContent=r.logs?r.logs:"(sin logs)";
+  }catch(e){pre.textContent="Error: "+e.message;return;}
+  pre.scrollTop=pre.scrollHeight; // auto-scroll al final
+}
+function svScale(j,n,btn){
+  const cur=prompt(`Servicio «${n||j}»: ¿cuántas replicas?`,
+    svcsCache.l.find(r=>r.ref_id===j)?.replicas||1);
+  if(cur===null)return;
+  const num=parseInt(cur,10);
+  if(isNaN(num)||num<1||num>100){errT("replicas debe ser un entero entre 1 y 100");return;}
+  if(btn)busy(btn,"Escalando…");
+  api("/service/job/"+encodeURIComponent(j)+"/scale","POST",{replicas:num})
+    .then(r=>{toast(`Servicio ${j}: replicas → ${r.replicas}`,"ok");return clientData();})
+    .catch(e=>errT(e.message))
+    .finally(()=>{if(btn)unbusy(btn);});
+}
+async function refreshKeys(v,n){
+  try{await api("/vm/"+v+"/ssh-keys","PUT");okT(`Claves reinyectadas en «${n}»`);}
+  catch(e){errT(e.message);}
+}
+async function saveKeys(btn){
+  busy(btn,"Guardando…");
+  try{
+    const r=await api("/me/ssh-keys","PUT",{ssh_key:$("#keyEdit").value});
+    okT(`${r.n_keys} clave(s) guardadas. Para aplicarla a una VM existente usá 🔑.`);
+    await clientData();
+  }catch(e){errT(e.message);}
+  finally{unbusy(btn);}
+}
+async function savePrivKey(btn){
+  busy(btn,"Guardando…");
+  try{
+    await api("/me/ssh-private-key","PUT",{private_key:$("#privKey").value});
+    okT("Clave privada guardada. Usá 🖥 en tu VM para la terminal SSH.");
+    const p=$("#privKey");if(p)p.value="";
+  }catch(e){errT(e.message);}
+  finally{unbusy(btn);}
+}
+async function copyText(txt,btn){
+  try{await navigator.clipboard.writeText(txt);
+    const old=btn.textContent;btn.textContent="✔ copiado";
+    setTimeout(()=>{btn.textContent=old;},1500);
+  }catch(e){prompt("Copiá manualmente:",txt);}
+}
+
+/* ── pestaña Documentación API ── */
+function apiRow(m,path,desc){
+  return `<tr><td class="mono" style="font-size:12px;white-space:nowrap">${m}</td><td class="mono" style="font-size:12px">${esc(path)}</td><td>${desc}</td></tr>`;
+}
+function apiCurl(id,txt){
+  return `<pre id="${id}" class="codebox">${esc(txt)}<button class="copybtn" onclick="copyText(document.getElementById('${id}').innerText,this)">📋 copiar</button></pre>`;
+}
+function renderApi(){
+  const el=$("#clApiPane"); if(!el)return;
+  const base=location.origin;
+  const ssh=esc(sshDom());
+  el.innerHTML=`
+  <div class="card"><h2>API de nubecita</h2>
+    <p class="muted" style="margin:0 0 6px">Todos los recursos del servicio están disponibles por API REST (JSON). Base: <code>${esc(base)}</code> · Documentación interactiva generada automáticamente: <a href="/docs" target="_blank"><code>${esc(base)}/docs</code></a></p>
+    <h3 style="margin-top:12px">Autenticación</h3>
+    <p class="muted" style="margin:0 0 6px">Creá un token en la pestaña <b>Configuración → Tokens API</b> (o con <code>POST /me/tokens</code>) y usalo en cada request con la cabecera <code>Authorization: Bearer &lt;token&gt;</code>. El texto del token solo se muestra una vez, al crearlo.</p>
+    ${apiCurl("apiAuthLogin","curl -X POST ${base}/api/login -H 'Content-Type: application/json' -d '{\"username\":\"tu_usuario\",\"password\":\"***\"}'")}
+  </div>
+  <div class="card mt"><h2>Ejemplo completo: crear → usar → borrar</h2>
+    ${apiCurl("apiC1","# 1) Crear una VM (responde al instante; pasa de 'provisioning' a 'running' en ~15s)\ncurl -X POST ${base}/vm \\\n  -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' \\\n  -d '{\"name\":\"mi-vm\",\"cpu\":2,\"ram_gb\":4,\"disk_gb\":20}'\n\n# 2) Listar mis VMs (incluye host_id para SSH y estado)\ncurl ${base}/vm -H 'Authorization: Bearer <TOKEN>'\n\n# 3) Prender / apagar\ncurl -X POST ${base}/vm/6177/start -H 'Authorization: Bearer <TOKEN>'\ncurl -X POST ${base}/vm/6177/stop  -H 'Authorization: Bearer <TOKEN>'\n\n# 4) Destruir (borrado real en el cluster; libera recursos y créditos)\ncurl -X DELETE ${base}/vm/6177 -H 'Authorization: Bearer <TOKEN>'")}
+  </div>
+  <div class="card mt"><h2>Endpoints de cliente</h2>
+    <div class="tblwrap"><table>
+      <tr><th>Método</th><th>Ruta</th><th>Qué hace</th></tr>
+      ${apiRow("POST","/api/login","Login → devuelve token (sin Bearer)")}
+      ${apiRow("GET","/quota","Cuota asignada y uso actual, más saldo de créditos")}
+      ${apiRow("GET","/me/credits","Saldo, costo por hora de tus VMs y horas restantes")}
+      ${apiRow("GET","/me/rates","Tasas de crédito por recurso (vCPU, RAM, disco, GPU)")}
+      ${apiRow("GET","/me/usage?days=30","Consumo diario de créditos y desglose por recurso")}
+      ${apiRow("POST","/vm","Crear VM. Body: name, cpu, ram_gb, disk_gb, gpu (bool), gpu_model (opcional). Async: responde con status 'provisioning'")}
+      ${apiRow("GET","/vm","Listar tus VMs (vmid, host_id, ip, estado, GPU)")}
+      ${apiRow("POST","/vm/{id}/start","Encender VM")}
+      ${apiRow("POST","/vm/{id}/stop","Apagar VM (deja de facturar)")}
+      ${apiRow("DELETE","/vm/{id}","Destruir VM en el cluster y liberar recursos/créditos")}
+      ${apiRow("PUT","/vm/{id}/ssh-keys","Reinyectar tus claves SSH en una VM existente")}
+      ${apiRow("POST","/service","Crear servicio contenedor (Nomad): name, image, cpu, ram_mb, replicas, port")}
+      ${apiRow("GET","/service","Listar tus servicios")}
+      ${apiRow("DELETE","/service/{job_id}","Destruir servicio")}
+      ${apiRow("POST","/service/job/start · /stop · /scale","Prender / apagar / escalar un servicio")}
+      ${apiRow("GET","/service/job/logs?job=&lines=","Logs de un servicio")}
+      ${apiRow("GET","/me/tokens","Listar tus tokens API (sin el texto)")}
+      ${apiRow("POST","/me/tokens","Crear token {label} — el texto se devuelve UNA vez")}
+      ${apiRow("PATCH","/me/tokens/{id}","Renombrar token · DELETE para revocar")}
+      ${apiRow("PUT","/me/ssh-keys","Guardar claves públicas SSH (una por línea), inyectadas al crear VMs")}
+      ${apiRow("POST","/tickets","Abrir ticket {title, description, category} · GET /tickets para listar")}
+      ${apiRow("GET","/api/gpus","Modelos de GPU disponibles en el pool")}
+      ${apiRow("GET","/api/brand · /api/health","Nombre/dominio del servicio · health check (sin Bearer)")}
+    </table></div>
+  </div>
+  <div class="card mt"><h2>Conectar por SSH a tu VM</h2>
+    <p class="muted" style="margin:0 0 6px">El usuario SSH es el <code>host_id</code> que aparece en la lista de VMs. Desde tu computadora (requiere <a href="https://developers.cloudflare.com/tunnel/downloads/" target="_blank">cloudflared</a>):</p>
+    ${apiCurl("apiSshCfg","Host ${ssh}\n  IdentityFile ~/.ssh/id_ed25519\n  ProxyCommand cloudflared access ssh --hostname %h")}
+    ${apiCurl("apiSshGo","# {host_id} = columna SSH hostname de la VM\nssh {host_id}@${ssh}\nrsync -a mis-archivos/ {host_id}@${ssh}:/tmp/   # subir archivos también anda")}
+  </div>
+  <div class="card mt"><h2>Créditos y errores</h2>
+    <p class="muted" style="margin:0 0 6px">Se factura por hora <b>mientras la VM está prendida</b> (tick de 60 s). Con saldo en 0 las VMs se apagan solas y no se pueden crear. <code>GET /me/credits</code> muestra el saldo.</p>
+    <div class="tblwrap"><table>
+      <tr><th>Código</th><th>Significado</th></tr>
+      ${apiRow("401","token inválido o revocado (creá uno nuevo en Tokens API)")}
+      ${apiRow("402","créditos insuficientes para crear la VM pedida (costo estimado en el mensaje)")}
+      ${apiRow("403","no autorizado")}
+      ${apiRow("404","recurso inexistente o que no es tuyo")}
+      ${apiRow("409","cuota superada o no hay GPU libre del modelo pedido")}
+      ${apiRow("400","datos inválidos (ej. GPU con disk &lt; 8 GB, nombre inválido)")}
+    </table></div>
+  </div>`;
+}
+/* ── SSH navegador ── */
+let sshWs=null,sshTerm=null,sshFit=null;
+async function openSsh(vmid,name){
+  try{
+    const pk=await api("/me/ssh-private-key");
+    if(!pk.has){
+      errT("No tenés clave privada cargada. Cargala en Configuración → «Mis claves SSH» para usar la terminal SSH. Con solo la clave pública podés SSH desde tu notebook a la IP de la VM.");
+      return;
+    }
+  }catch(e){}
+  $("#sshModal").classList.add("show");
+  $("#sshTitle").textContent=`SSH → ${name||("VM "+vmid)}`;
+  if(sshTerm){try{sshTerm.dispose()}catch(e){}sshTerm=null;}
+  const term=new Terminal({cursorBlink:true,fontSize:13,theme:{background:"#001c21",foreground:"#d6eef0"}});
+  const fit=new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open($("#sshTerm"));
+  fit.fit();
+  term.writeln("Conectando…");
+  sshTerm=term;sshFit=fit;
+  const proto=location.protocol==="https:"?"wss":"ws";
+  const ws=new WebSocket(`${proto}://${location.host}/ws/ssh/${vmid}?token=${encodeURIComponent(session.token)}`);
+  sshWs=ws;ws.binaryType="arraybuffer";
+  ws.onopen=()=>{term.clear();term.focus();ws.send(JSON.stringify({cols:term.cols,rows:term.rows}));};
+  ws.onmessage=e=>{const d=e.data instanceof ArrayBuffer?new Uint8Array(e.data):e.data;term.write(d);};
+  ws.onclose=e=>{term.writeln("\r\n[desconectado]"+(e.reason?" ("+e.reason+")":""));};
+  ws.onerror=()=>term.writeln("[error de conexión]");
+  term.onData=d=>{if(ws.readyState===1)ws.send(d);};
+  term.onResize=r=>{if(ws.readyState===1)ws.send(JSON.stringify(r));};
+}
+function closeSsh(){
+  if(sshWs){try{sshWs.close()}catch(e){}sshWs=null;}
+  if(sshTerm){try{sshTerm.dispose()}catch(e){}sshTerm=null;}
+  $("#sshModal").classList.remove("show");
+}
+
+
+/* ══════════ Soporte (cliente): reportes de bugs ══════════ */
+const TICKET_CAT=[["bug","Bug"],["cuenta","Cuenta / acceso"],["recursos","Recursos"],["facturacion","Facturación / créditos"],["otro","Otro"]];
+const TICKET_ST={open:"Abierto",in_progress:"En progreso",resolved:"Resuelto",closed:"Cerrado"};
+function ticketPill(st){return `<span class="pill t_${st}">${TICKET_ST[st]||esc(st)}</span>`;}
+function catLabel(k){return (TICKET_CAT.find(x=>x[0]===k)||[])[1]||esc(k);}
+let bugsPaneLoaded=false;
+async function renderBugs(){
+  const bp=$("#clBugsPane"); if(!bp)return;
+  if(!bugsPaneLoaded){
+    bp.innerHTML=`
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2 style="margin:0;flex:1">Mis reportes</h2>
+        <span class="hint" style="margin:0 0 0 0">¿Algo no anda? Contanos y un admin lo revisa.</span>
+        <button onclick="openBugModal()" style="white-space:nowrap">+ Reportar un problema</button>
+      </div>
+      <div id="bugsList" class="mt" data-err="bugsList">${skelTable()}</div>
+    </div>`;
+  }
+  const d=await api("/tickets");
+  bugsPaneLoaded=true;
+  drawBugs(d.tickets);
+}
+function drawBugs(list){
+  const host=$("#bugsList"); if(!host)return;
+  host.innerHTML=list.length
+    ?`<div class="tblwrap"><table><tr><th>#</th><th>Título</th><th>Categoría</th><th>Estado</th><th>Respuestas</th><th>Creado</th></tr>
+     ${list.map(t=>`<tr style="cursor:pointer" onclick="openBugDetail(${t.id})">
+       <td class="mono" style="font-size:12px">#${t.id}</td>
+       <td>${esc(t.title)}</td>
+       <td class="muted" style="font-size:12px">${catLabel(t.category)}</td>
+       <td>${ticketPill(t.status)}</td>
+       <td class="muted" style="font-size:12px">${t.n_replies}</td>
+       <td class="muted" style="font-size:12px">${fdate(t.created_at)}</td>
+     </tr>`).join("")}
+     </table></div>`
+    :`<div class="empty">Sin reportes todavía.</div>`;
+}
+function openBugModal(){
+  const m=document.createElement("div");m.id="bugModal";m.className="modal show";
+  m.innerHTML=`<div class="cbox" style="width:min(560px,92vw)">
+    <h3>Reportar un problema</h3>
+    <p class="muted" style="margin-top:0">Contanos qué pasó: qué estabas haciendo, qué esperabas y qué pasó en vez. Un admin lo revisa desde su panel.</p>
+    <div class="fld"><label>Título</label><input id="bugTitle" maxlength="200" style="margin-top:0" placeholder="ej. VM quedó en «provisioning» hace 20 min"></div>
+    <div class="fld"><label>Categoría</label>
+      <select id="bugCat">${TICKET_CAT.map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></div>
+    <div class="fld"><label>Detalle</label><textarea id="bugDesc" rows="5" maxlength="8000" placeholder="Pasos para reproducir, mensajes de error…" style="font:12px var(--mono)"></textarea></div>
+    <div class="msg" id="bugMsg"></div>
+    <div class="cbtns">
+      <button class="ghost" onclick="closeBugModal()">Cancelar</button>
+      <button id="bugGo" onclick="submitBug(this)">Enviar</button>
+    </div></div>`;
+  m.addEventListener("click",e=>{if(e.target===m)closeBugModal();});
+  document.body.appendChild(m);
+  setTimeout(()=>{const f=$("#bugTitle");if(f)f.focus();},60);
+}
+function closeBugModal(){const m=$("#bugModal");if(m)m.remove();}
+async function submitBug(btn){
+  busy(btn,"Enviando…");
+  try{
+    const r=await api("/tickets","POST",{
+      title:$("#bugTitle").value,description:$("#bugDesc").value,category:$("#bugCat").value});
+    closeBugModal();
+    okT(`Reporte #${r.id} enviado — un admin lo va a revisar`);
+    bugsPaneLoaded=false;
+    if(clientTab==="bugs")renderBugs();
+  }catch(e){setMsg($("#bugMsg"),e.message,"err");}
+  finally{unbusy(btn);}
+}
+async function openBugDetail(tid){
+  let t;try{t=await api("/tickets/"+tid);}catch(e){errT(e.message);return;}
+  const m=document.createElement("div");m.id="bugDetailModal";m.className="modal show";
+  m.innerHTML=`<div class="cbox" style="width:min(640px,94vw);max-height:86vh;overflow:auto">
+    <h3>#${t.id} · ${esc(t.title)} ${ticketPill(t.status)}</h3>
+    <p class="hint" style="margin-top:0">${catLabel(t.category)} · enviado ${fdate(t.created_at)}${t.updated_at&&t.updated_at!==t.created_at?` · actualizado ${fdate(t.updated_at)}`:""}</p>
+    <pre style="white-space:pre-wrap;font:13px var(--mono);background:#0d1420;padding:10px;border-radius:8px;margin:0 0 12px">${esc(t.description)}</pre>
+    ${t.admin_note?`<div class="hint">Nota del admin: ${esc(t.admin_note)}</div>`:""}
+    <h3 style="font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 8px">Hilo</h3>
+    <div id="bugReplies">${t.replies.map(r=>`
+      <div style="margin-bottom:10px"><div class="hint" style="margin:0 0 2px">${r.username==="admin"?"<b>Admin</b>":esc(r.username)} · ${fdate(r.created_at)}</div>
+      <pre style="white-space:pre-wrap;font:13px var(--mono);background:#0d1420;padding:8px;border-radius:8px;margin:0">${esc(r.body)}</pre></div>`).join("")
+      ||`<div class="empty" style="padding:6px">Sin mensajes todavía.</div>`}</div>
+    ${t.status!=="closed"
+      ?`<div class="fld mt"><label>Agregar un mensaje</label><textarea id="bugReply" rows="3" maxlength="8000"></textarea></div>
+         <div class="cbtns"><button class="ghost" onclick="closeBugDetail()">Cerrar</button>
+         <button id="bugReplyBtn" onclick="sendBugReply(${t.id},this)">Enviar</button></div>`
+      :`<div class="hint">Este ticket está cerrado.</div>
+        <div class="cbtns"><button class="ghost" onclick="closeBugDetail()">Cerrar</button></div>`}
+  </div>`;
+  m.addEventListener("click",e=>{if(e.target===m)closeBugDetail();});
+  document.body.appendChild(m);
+}
+function closeBugDetail(){const m=$("#bugDetailModal");if(m)m.remove();}
+async function sendBugReply(tid,btn){
+  busy(btn,"Enviando…");
+  try{
+    await api(`/tickets/${tid}/replies`,"POST",{body:$("#bugReply").value});
+    closeBugDetail();okT("mensaje enviado");
+    if(clientTab==="bugs")renderBugs();
+  }catch(e){errT(e.message);}
+  finally{if(btn)unbusy(btn);}
+}
+/* ── boot ── */
+(async()=>{
+  try{const b=await fetch("/api/brand");const d=await b.json();if(d&&d.domain)brand=d;}catch(e){}
+})();
+const saved=sessionStorage.getItem("nubecita");
+if(saved){try{session=JSON.parse(saved);enterApp();}catch(e){}}
+</script>
+</body>
+</html>

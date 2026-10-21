@@ -1,0 +1,4 @@
+# runtime de web-react
+node_modules/
+dist/
+*.local

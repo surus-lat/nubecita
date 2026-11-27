@@ -1,5 +1,4 @@
 /* Portal ADMIN de nubecita — bundle diferido: se carga con <script> inyectado
-function VMNET(){const p=((typeof brand!=="undefined"&&brand&&brand.vm_net)||"10.20.1").split(".");return p[0]+"."+p[1];}
    solo cuando session.role==='admin' (ver loadAdminBundle en index.html).
    Script clásico: comparte el scope global con el inline de index.html
    (api, $, esc, pill, bar, toast, busy, askConfirm, fmtCr, adminTab, etc.). */
@@ -24,6 +23,13 @@ function adminHtml(){
         <div class="hint" style="margin:0 0 10px">«Desfasado» = el ledger dice un estado y PVE/Nomad otro. Borrar forzoso limpia el ledger aunque el backend esté roto.</div>
         <div class="filt" id="resFilt"></div>
         <div id="resList" data-err="resList"></div>
+      </div>
+    </div>`;
+  if(adminTab==="nodes")return `
+    <div id="aNodes">
+      <div class="card"><h2>Nodos / backends</h2>
+        <div class="hint" style="margin:0 0 10px">Cada backend (Proxmox o Harvester) es una fila. «drain» desvía lo nuevo a los demás nodos sin tocar lo que ya corre. Los nodos harvester quedan inactivos hasta su prueba e2e (runbook).</div>
+        <div id="nodeList" data-err="nodeList"></div>
       </div>
     </div>`;
   if(adminTab==="tickets")return `
@@ -54,6 +60,7 @@ async function renderAdmin(){
   if(a.dataset.tab!==adminTab){a.dataset.tab=adminTab;a.innerHTML=adminHtml();}
   if(adminTab==="overview")await renderOverview();
   else if(adminTab==="resources")await renderResources();
+  else if(adminTab==="nodes")await renderNodes();
   else if(adminTab==="tickets")await renderTickets();
   else await renderUsers();
 }
@@ -62,6 +69,7 @@ function adminRender(){
   if(a.dataset.tab!==adminTab){a.dataset.tab=adminTab;a.innerHTML=adminHtml();}
   if(adminTab==="overview")renderOverview();
   else if(adminTab==="resources")renderResources();
+  else if(adminTab==="nodes")renderNodes();
   else if(adminTab==="tickets")renderTickets();
   else renderUsers();
 }
@@ -87,7 +95,7 @@ async function renderOverview(){
   const rows=ov.clients.map(c=>{
     const u=ov.per_client[c.id]||{vms:0,containers:0,cpu:0,ram_mb:0,disk_gb:0};
     return `<tr><td><b>${esc(c.id)}</b></td>
-      <td class="mono" style="font-size:12px">${c.subnet?`${VMNET()}.${c.subnet}.0/24`:"—"}</td>
+      <td class="mono" style="font-size:12px">${c.subnet?`10.20.${c.subnet}.0/24`:"—"}</td>
       <td style="min-width:110px">${qval(u.cpu,c.cpu_quota)}</td>
       <td style="min-width:110px">${qval(gb(u.ram_mb),gb(c.ram_quota_mb)," GB")}</td>
       <td style="min-width:110px">${qval(u.disk_gb,c.disk_quota_gb," GB")}</td>
@@ -272,7 +280,7 @@ async function renderUsers(){
     return `<tr style="cursor:pointer" onclick="selectUser('${esc(u.username)}')">
       <td><b>${esc(u.username)}</b><div class="muted" style="font-size:11px">desde ${fdate(u.created_at)}</div></td>
       <td>${u.role==="admin"?`<span class="pill other">admin</span>`:`<span class="pill pending">client</span>`}</td>
-      <td class="mono" style="font-size:12px">${u.subnet?`${VMNET()}.${u.subnet}.0/24`:"—"}</td>
+      <td class="mono" style="font-size:12px">${u.subnet?`10.20.${u.subnet}.0/24`:"—"}</td>
       <td>${u.role==="client"?qval(uk,u.cpu_quota):"—"}</td>
       <td style="min-width:110px">${u.role==="client"?`${qval(ur,Math.round(u.ram_quota_mb/1024)," GB")}${bar(ur,u.ram_quota_mb/1024)}`:"—"}</td>
       <td style="min-width:110px">${u.role==="client"?`${qval(ud,u.disk_quota_gb," GB")}${bar(ud,u.disk_quota_gb)}`:"—"}</td>
@@ -306,7 +314,7 @@ function fillEditor(){
   }
   body.innerHTML=`
     <div class="qrow" style="margin-top:0"><span><b>${esc(u.username)}</b></span>
-      <span class="mono muted" style="font-size:12px">${{u.subnet?"LAN "+((brand&&brand.vm_net)||"10.20.1").split(".").slice(0,2).join(".")+"."+u.subnet+".0/24":"sin LAN"}}</span></div>
+      <span class="mono muted" style="font-size:12px">${u.subnet?"LAN 10.20."+u.subnet+".0/24":"sin LAN"}</span></div>
     <div class="row">
       <div><label>CPU (cores)</label><input id="eCpu" type="number" value="${u.cpu_quota}"></div>
       <div><label>RAM (GB)</label><input id="eRam" type="number" value="${Math.round(u.ram_quota_mb/1024)}"></div>
@@ -508,6 +516,45 @@ function drawTkList(rows){
     :`<div class="empty">Sin tickets ${adminTkFilt==="all"?"":`en «${TK_FILTS.find(x=>x[0]===adminTkFilt)[1]}»`}.
       ${adminTkFilt==="open"?"":"<span class='muted'>Cambiar el filtro para ver el resto.</span>"}</div>`;
 }
+async function renderNodes(){
+  const host=$("#nodeList"); if(!host)return;
+  let rows;
+  try{rows=await api("/admin/nodes",undefined,undefined,"admin");}catch(e){errT(e.message);return;}
+  const fmt=(a,b)=>b==null?"—":`${a??0}/${b}`;
+  host.innerHTML=`<div class="tblwrap"><table><tr><th>Nodo</th><th>Tipo</th><th>Estado</th><th>CPU</th><th>RAM</th><th>Disco</th><th>GPU</th><th>Visto</th><th></th></tr>
+    ${rows.map(n=>{const a=n.assigned||{};return `<tr>
+      <td class="mono">${esc(n.id)}</td>
+      <td>${n.kind==="pve"?"Proxmox":"Harvester"}</td>
+      <td>${pill(n.status)}</td>
+      <td style="font-size:12px">${fmt(a.cpu,n.capacity_cpu)}</td>
+      <td style="font-size:12px">${fmt(Math.round((a.ram_mb||0)/1024),n.capacity_ram_mb?Math.round(n.capacity_ram_mb/1024):null)} G</td>
+      <td style="font-size:12px">${fmt(a.disk_gb,n.capacity_disk_gb)} G</td>
+      <td style="font-size:12px">${n.gpus||0}</td>
+      <td class="muted" style="font-size:12px">${esc(n.last_seen||"—")}</td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="ghost sm" onclick="probeNode('${esc(n.id)}',this)" title="Consultar backend">Probar</button>
+        ${n.status==="drain"
+          ?`<button class="sm" onclick="setNodeStatus('${esc(n.id)}','online',this)" title="Reanudar">▶</button>`
+          :`<button class="ghost sm" onclick="setNodeStatus('${esc(n.id)}','drain',this)" title="Drain">D</button>`}
+      </td></tr>`;}).join("")}</table></div>
+    <div class="hint mt" style="margin:8px 0 0">Capacidad — = sin límite físico registrado (la quota por cliente sigue aplicando).</div>`;
+}
+async function probeNode(id,btn){
+  if(btn)busy(btn);
+  try{const r=await api("/admin/nodes/"+id+"/probe","POST",undefined,"admin");
+    if(r.ok)okT(`${id}: backend responde`);else errT(`${id}: ${r.error||"sin respuesta"}`);}
+  catch(e){errT(e.message);}
+  if(btn)unbusy(btn);
+  setTimeout(renderNodes,400);
+}
+async function setNodeStatus(id,st,btn){
+  if(btn)busy(btn);
+  try{await api("/admin/nodes/"+id,"PUT",{status:st},"admin");okT(`${id} → ${st}`);cacheBust("/admin/nodes");}
+  catch(e){errT(e.message);}
+  if(btn)unbusy(btn);
+  setTimeout(renderNodes,400);
+}
+
 async function renderTickets(){
   const d=await api("/admin/tickets","GET",null,"admin");
   adminTkCache=d.tickets; drawTkFilt(); drawTkList(d.tickets);

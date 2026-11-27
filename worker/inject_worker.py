@@ -15,10 +15,8 @@ memory.max ya limita la RAM real.
 import http.server, json, os, subprocess, sys
 
 TOKEN = os.environ.get("INJECT_TOKEN")
-HOST = os.environ.get("INJECT_BIND", "0.0.0.0")   # ej. la IP del bridge interno del host
-PORT = int(os.environ.get("INJECT_PORT", "8090"))
-# unicas fuentes permitidas: el CT del cloudapi y el propio host
-ALLOWED = set((os.environ.get("INJECT_ALLOW", "") or "").split(",")) - {""}
+HOST = os.environ.get("INJECT_BIND", "10.20.0.1")   # vmbr-cloud
+PORT = 8090
 
 # --- tmpfs-limits: script + service que se inyectan a cada LXC nuevo ---
 TMPFS_SCRIPT = """#!/bin/bash
@@ -146,8 +144,8 @@ def main():
             if self.path == "/gpu_health":
                 # Interno: solo el cloudapi (CT 6003 en vmbr-cloud) o el propio
                 # host pueden consultar el estado de GPUs. El worker escucha en
-                # si no se configura INJECT_ALLOW, se rechaza todo (fail-closed)
-                if self.client_address[0] not in ALLOWED:
+                # 10.20.0.1:8090, accesible desde cualquier VM del pool cloud.
+                if self.client_address[0] not in (os.environ.get("INJECT_ALLOW_API", "10.20.0.20"), os.environ.get("INJECT_ALLOW_HOST", "10.20.0.1")):
                     return self._json(403, {"error": "gpu_health interno"})
                 return self._json(200, gpu_health())
             try:

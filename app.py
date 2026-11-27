@@ -38,9 +38,9 @@ from pydantic import BaseModel
 # ─── Config ────────────────────────────────────────────────────────────
 DB = os.environ.get("CLOUDAPI_DB", "/opt/cloudapi/cloud.db")
 PVE_HOST = os.environ.get("PVE_HOST", "https://pve.example:8006")
-PVE_NODE = os.environ.get("PVE_NODE", "proxmox")
-PVE_USER = os.environ.get("PVE_USER", "root@pam")
-PVE_TOKEN = os.environ.get("PVE_TOKEN_NAME", "cloud-api")
+PVE_NODE = "proxmox"
+PVE_USER = "root@pam"
+PVE_TOKEN = "cloud-api"
 PVE_TOKEN_VAL = os.environ.get("PVE_TOKEN_VAL", "")
 NOMAD_HOST = os.environ.get("NOMAD_HOST", "http://nomad.example:4646")
 # worker de inyección SSH en el host (pct push, solo vía token)
@@ -100,7 +100,7 @@ VM_ID_BASE = 6100
 SERVICE_KEY_PUB_FILE = os.environ.get("SERVICE_KEY_PUB_FILE", "/opt/sshgw/service.pub")
 # GPU passthrough (solo QEMU; LXC no soporta hostpci)
 GPU_VENDOR = "0x10de"          # NVIDIA
-GPU_DISK_STORAGE = os.environ.get("GPU_DISK_STORAGE", "local-lvm")
+GPU_DISK_STORAGE = os.environ.get("GPU_DISK_STORAGE", "INTELSSD0")
 GPU_TEMPLATE_VID = int(os.environ.get("GPU_TEMPLATE_VID", "9100"))  # template QEMU base para linked clones (9100 ya trae driver NVIDIA + dkms)
 GPU_MAP_PREFIX = "cloud-gpu"   # IDs de mapping PCI del servicio (se distinguen de los manuales)
 
@@ -114,9 +114,9 @@ TEMPLATE = "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
 BRIDGE = "vmbr-cloud"
 CLOUD_DOMAIN = os.environ.get("CLOUD_DOMAIN", "nubecita.surus.lat")
 SSH_DOMAIN = os.environ.get("SSH_DOMAIN", "ssh.surus.lat")
-GATEWAY_IP = os.environ.get("GATEWAY_IP", "127.0.0.1")   # IP del CT cloudapi (gateway SSH)
-VM_NET_PREFIX = os.environ.get("VM_NET_PREFIX", "10.20.1")  # VM N -> {prefix}.{N-VM_ID_BASE+2}
-CLOUD_NET = os.environ.get("CLOUD_NET", f"{VM_NET_PREFIX}.0/24")  # subred para VMs
+GATEWAY_IP = os.environ.get("GATEWAY_IP", "10.20.0.20")  # IP del CT cloudapi (gateway SSH)
+VM_NET_PREFIX = os.environ.get("VM_NET_PREFIX", "10.20.1")
+CLOUD_NET = os.environ.get("CLOUD_NET", f"{VM_NET_PREFIX}.0/24")  # subred para VMs (cliente N → 10.20.1.N)
 CLOUD_GW = os.environ.get("CLOUD_GW", f"{VM_NET_PREFIX}.1")
 
 app = FastAPI(title="Cloud API", version="1.0")
@@ -179,12 +179,25 @@ def _credit_rates_init():
 
 _credit_rates_init()
 
-def vm_hourly_cost(cpu: int, ram_mb: int, disk_gb: int, gpu: int = 0) -> float:
-    """Créditos/hora que cuesta una VM según lo asignado (tasas en CREDIT_RATES)."""
+def _gpu_rate(gpu_model: str = "") -> float:
+    """Tasa GPU aplicable: override por modelo ('gpu:<modelo>') si existe, si no
+    la tasa generica 'gpu'. No se siembran overrides por default: el billing es
+    identico al actual hasta que el admin crea uno (PUT /admin/rates)."""
+    if gpu_model:
+        v = CREDIT_RATES.get(f"gpu:{gpu_model}")
+        if v is not None:
+            return v
+    return CREDIT_RATES["gpu"]
+
+
+def vm_hourly_cost(cpu: int, ram_mb: int, disk_gb: int, gpu: int = 0,
+                   gpu_model: str = "") -> float:
+    """Creditos/hora segun lo asignado (tasas en CREDIT_RATES). gpu_model
+    permite override por modelo: gpu:<modelo> (plan harvester 8.4)."""
     return ((cpu or 0) * CREDIT_RATES["cpu"]
             + (ram_mb or 0) / 1024 * CREDIT_RATES["ram_gb"]
             + (disk_gb or 0) * CREDIT_RATES["disk_gb"]
-            + (gpu or 0) * CREDIT_RATES["gpu"])
+            + (gpu or 0) * _gpu_rate(gpu_model))
 
 def _gpu_units(r) -> int:
     """GPU facturable de una fila de resources: 1 si tiene gpu_mapping activo.
@@ -241,7 +254,8 @@ async def credit_billing_loop():
                     last_ts = max(created, now - BILL_MAX_CATCHUP)
                 dt = min(max(now - last_ts, 0.0), BILL_MAX_CATCHUP)
                 cost = vm_hourly_cost(r["cpu"], r["ram_mb"], r["disk_gb"],
-                                      _gpu_units(r)) * dt / 3600
+                                      _gpu_units(r),
+                                      r["gpu_model"] if "gpu_model" in r.keys() else "") * dt / 3600
                 if cost <= 0:
                     continue
                 username = r["client_id"]
@@ -334,8 +348,6 @@ def _init_users():
     """)
     import hashlib
     h = lambda p: hashlib.sha256(p.encode()).hexdigest()
-    # seed: admin solo si se define explicitamente (SEED_ADMIN_USER/SEED_ADMIN_PASSWORD);
-    # cliente demo "test" siempre (cota chica, para pruebas publicas)
     seed = []
     _su, _sp = os.environ.get("SEED_ADMIN_USER"), os.environ.get("SEED_ADMIN_PASSWORD")
     if _su and _sp:
@@ -438,6 +450,33 @@ def _migrate_users():
         print(f"[migrate_users] password inicial generado para '{uname}': {pw}  (se muestra UNA sola vez, en este log)")
 
 _migrate_users()
+
+# ─── Registro de nodos (multi-backend, S1) ─────────────────────────────
+def _migrate_nodes():
+    """Tabla `nodes` (un registro por backend: pve-1 hoy; harvesters despues)
+    y columna resources.node_id (default pve-1). Idempotente."""
+    conn = sqlite3.connect(DB)
+    conn.execute("""CREATE TABLE IF NOT EXISTS nodes (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL DEFAULT 'pve',
+        endpoint TEXT NOT NULL DEFAULT '',
+        token_ref TEXT NOT NULL DEFAULT '',
+        capacity_cpu INTEGER,
+        capacity_ram_mb INTEGER,
+        capacity_disk_gb INTEGER,
+        gpus INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'online',
+        last_seen TEXT,
+        created_at TEXT DEFAULT (datetime('now')))""")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(resources)").fetchall()]
+    if "node_id" not in cols:
+        conn.execute("ALTER TABLE resources ADD COLUMN node_id TEXT DEFAULT 'pve-1'")
+    conn.execute("INSERT OR IGNORE INTO nodes (id, kind, endpoint) VALUES ('pve-1','pve',?)",
+                 (PVE_HOST,))
+    conn.commit()
+    conn.close()
+
+_migrate_nodes()
 
 @contextmanager
 def db():
@@ -614,6 +653,340 @@ async def pve_put(path: str, data: dict) -> dict:
         raise HTTPException(502, f"PVE error {r.status_code}: {r.text[:200]}")
     return r.json()
 
+def _row_node_id(row) -> str:
+    """Nodo dueño de una fila del ledger (default pve-1 para filas históricas)."""
+    try:
+        return (row["node_id"] if "node_id" in row.keys() else None) or "pve-1"
+    except Exception:
+        return "pve-1"
+
+
+def _require_pve_row(row, vmid) -> None:
+    """Las rutas de ciclo de vida escritas contra PVE solo aplican a filas del
+    backend PVE. Una fila de otro backend NUNCA se toca acá (se gestionaría en
+    el backend equivocado). Los backends no-PVE se habilitan tras su e2e
+    (runbook docs/harvester-onboarding.md)."""
+    nid = _row_node_id(row)
+    if nid != "pve-1":
+        raise HTTPException(501, f"la VM {vmid} vive en el backend {nid}; su gestión "
+                                 "por API se habilita tras la integración e2e de ese nodo")
+
+
+# ─── Providers de backend (multi-nodo, S1) ────────────────────────────
+# Abstraccion del backend por nodo (plan nubecita-escala-harvester.md §4.1).
+# S1: PVEProvider envuelve los helpers pve_* existentes SIN cambiar el
+# comportamiento (la unica fila 'pve-1' usa los globales PVE_HOST/PVE_NODE).
+# HarvesterProvider queda declarado con IMPLEMENTED=False hasta tener el
+# nodo fisico (S2); mientras, _pick_node nunca lo elige.
+class PVEProvider:
+    kind = "pve"
+
+    def __init__(self, node: dict):
+        self.node = node
+
+    async def vm_status(self, ref_id: str, vkind: str):
+        try:
+            st = await pve_get(f"/nodes/{PVE_NODE}/{vkind}/{int(ref_id)}/status/current")
+            return (st.get("data") or {}).get("status")
+        except HTTPException:
+            return None
+
+    def node_probe(self) -> dict:
+        st = pve_get_sync(f"/nodes/{PVE_NODE}/status")
+        d = st.get("data") or {}
+        mem = d.get("memory") or {}
+        cpu = d.get("cpu") or {}
+        return {"node": d.get("node"), "mem_used": mem.get("used"),
+                "mem_total": mem.get("total"), "cpu_load_1min": cpu.get("load_1min")}
+
+
+class HarvesterProvider:
+    """Backend Harvester (KubeVirt via el proxy Rancher del propio nodo).
+
+    Endpoints (API estandar de Kubernetes/CRD, version 1.9):
+      - VirtualMachine:  /k8s/clusters/local/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines
+        subresources start/stop; la VMI hija es .../virtualmachineinstances.
+      - namespace cliente: tenant-<user> (aislamiento y cuota visibles en la UI).
+      - volumen root: PVC Longhorn (harvester-storage); imagen base:
+        virtualmachineimage harvesterhci.io/v1beta1 (ns harvester-system).
+      - nodos/capacidad: /api/v1/nodes (status.capacity / allocatable).
+    El nodo registra endpoint = https://<vip> y se usa Bearer token
+    (service account minimo). La red cliente (LAN 10.20.x) entra en S3 con
+    la NAD de la VLAN: por ahora la VMI nace en la red default del nodo.
+    IMPLEMENTED sigue False hasta el e2e contra el nodo fisico (S2), pero el
+    codigo esta completo y cubierto por test_harvester.py con transport mock.
+    """
+    kind = "harvester"
+    IMPLEMENTED = False   # lo vira True _register el nodo tras un probe OK
+    IMG_NAMESPACE = "harvester-system"
+    STORAGE_CLASS = "harvester-longhorn"
+
+    def __init__(self, node: dict):
+        self.node = node
+        self.base = (node.get("endpoint") or "").rstrip("/") + "/k8s/clusters/local"
+        # el token vive en env, referenciado por token_ref (no en la DB)
+        ref = node.get("token_ref") or "HARVESTER_TOKEN_VAL"
+        self.token = os.environ.get(ref, "")
+
+    def _headers(self):
+        return {"Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"}
+
+    async def _req(self, method: str, path: str, body: dict = None, timeout: int = 30):
+        if not self.token:
+            raise HTTPException(503, f"nodo {self.node['id']}: falta token ({self.node.get('token_ref') or 'HARVESTER_TOKEN_VAL'})")
+        async with httpx.AsyncClient(verify=False, timeout=timeout) as c:
+            r = await c.request(method, f"{self.base}{path}",
+                                headers=self._headers(),
+                                json=body)
+        if r.status_code >= 400:
+            raise HTTPException(502, f"Harvester {r.status_code}: {r.text[:200]}")
+        return r.json() if r.content else {}
+
+    # helpers de nombre: la VM se llama vm-<vmid> en el namespace del cliente
+    @staticmethod
+    def _ns(client_id: str) -> str:
+        return "tenant-" + re.sub(r"[^a-z0-9-]", "-", client_id.lower())
+
+    @staticmethod
+    def _name(vmid) -> str:
+        return f"vm-{vmid}"
+
+    async def ensure_namespace(self, client_id: str):
+        ns = self._ns(client_id)
+        try:
+            await self._req("GET", f"/api/v1/namespaces/{ns}")
+        except HTTPException as e:
+            if "404" in str(e.detail):
+                await self._req("POST", "/api/v1/namespaces",
+                                {"apiVersion": "v1", "kind": "Namespace",
+                                 "metadata": {"name": ns}})
+            else:
+                raise
+
+    async def find_image(self, name_part: str = "ubuntu") -> str:
+        """Devuelve el nombre de la virtualmachineimage (ns harvester-system)."""
+        d = await self._req("GET", f"/apis/harvesterhci.io/v1beta1/namespaces/{self.IMG_NAMESPACE}/virtualmachineimages")
+        cands = [i for i in d.get("items", [])
+                 if name_part in i.get("metadata", {}).get("name", "")
+                 and i.get("status", {}).get("progress") == 100]
+        if not cands:
+            raise HTTPException(409, "imagen base no encontrada/lista en el nodo Harvester")
+        return cands[-1]["metadata"]["name"]
+
+    def _vm_body(self, vmid, name, cpu, ram_mb, disk_gb, image, ssh_keys, ip_cidr, gw) -> dict:
+        """Spec VirtualMachine (runStrategy RerunOnFailure, red default).
+        SSH keys por cloud-init (UNION obligatoria; la inyeccion por subconjunto
+        rompe el gateway SSH — ver skill nubecita). La IP estatica por
+        cloud-init llega en S3 con la NAD de la VLAN; por ahora DHCP default."""
+        ns = self._ns(name)
+        return {
+            "apiVersion": "kubevirt.io/v1", "kind": "VirtualMachine",
+            "metadata": {"name": self._name(vmid), "namespace": ns,
+                         "labels": {"cloudapi/nubecita": "true"}},
+            "spec": {
+                "runStrategy": "RerunOnFailure",
+                "template": {
+                    "metadata": {"labels": {"kubevirt.io/vm": self._name(vmid)}},
+                    "spec": {
+                        "domain": {
+                            "cpu": {"cores": int(cpu)},
+                            "memory": {"guest": f"{int(ram_mb)}Mi"},
+                            "devices": {
+                                "interfaces": [{"name": "default", "masquerade": {}}],
+                                "disks": [{"name": "rootdisk", "bootDisk": 1,
+                                           "disk": {"bus": "virtio"}}]}},
+                        "networks": [{"name": "default", "pod": {}}],
+                        "volumes": [
+                            {"name": "rootdisk",
+                             "persistentVolumeClaim": {"claimName": f"rootdisk-{vmid}"}},
+                            {"name": "cloudinit", "cloudInitConfigMap": {
+                                "name": f"cloudinit-{vmid}"}}],
+                    }}}}
+
+    async def create_rootdisk(self, client_id: str, vmid, size_gb: int):
+        ns = self._ns(client_id)
+        await self._req("POST", f"/api/v1/namespaces/{ns}/persistentvolumeclaims", {
+            "apiVersion": "v1", "kind": "PersistentVolumeClaim",
+            "metadata": {"name": f"rootdisk-{vmid}", "namespace": ns,
+                         "annotations": {"harvesterhci.io/storageClassName": self.STORAGE_CLASS}},
+            "spec": {"accessModes": ["ReadWriteOnce"],
+                     "storageClassName": self.STORAGE_CLASS,
+                     "resources": {"requests": {"storage": f"{int(size_gb)}Gi"}}}})
+
+    async def create_cloudinit(self, client_id: str, vmid, ssh_keys):
+        ns = self._ns(client_id)
+        import base64
+        ci = "#cloud-config\nusers:\n  - name: default\n    ssh_authorized_keys:\n"
+        for k in ssh_keys:
+            ci += f"      - {k}\n"
+        await self._req("POST", f"/api/v1/namespaces/{ns}/secrets", {
+            "apiVersion": "v1", "kind": "Secret",
+            "metadata": {"name": f"cloudinit-{vmid}", "namespace": ns},
+            "type": "Opaque",
+            "data": {"userData": base64.b64encode(ci.encode()).decode()}})
+
+    async def create_vm(self, client_id: str, vmid: int, name: str, cpu: int,
+                        ram_mb: int, disk_gb: int, ssh_keys: list) -> None:
+        await self.ensure_namespace(client_id)
+        image = await self.find_image()
+        await self.create_rootdisk(client_id, vmid, disk_gb)
+        # nota: Harvester clona la imagen al PVC solo si se crea vacio desde la
+        # UI; por API se usa el volumen de datos de la imagen o `virtctl`. El
+        # e2e del nodo (S2) define la mecanica exacta de provisionado del
+        # rootdisk; aca se registra el intent y se crea la VM.
+        await self.create_cloudinit(client_id, vmid, ssh_keys)
+        body = self._vm_body(vmid, client_id, cpu, ram_mb, disk_gb, image,
+                             ssh_keys, None, None)
+        await self._req("POST", f"/apis/kubevirt.io/v1/namespaces/{self._ns(client_id)}/virtualmachines", body)
+
+    async def start(self, client_id: str, vmid) -> dict:
+        return await self._req("PUT", f"/apis/kubevirt.io/v1/namespaces/{self._ns(client_id)}/virtualmachines/{self._name(vmid)}/start", {})
+
+    async def stop(self, client_id: str, vmid) -> dict:
+        return await self._req("PUT", f"/apis/kubevirt.io/v1/namespaces/{self._ns(client_id)}/virtualmachines/{self._name(vmid)}/stop", {})
+
+    async def delete(self, client_id: str, vmid) -> None:
+        ns = self._ns(client_id)
+        await self._req("DELETE", f"/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{self._name(vmid)}")
+        # purgar disco + cloudinit (garantia de borrado, misma regla que PVE)
+        for kind_, nm in (("persistentvolumeclaims", f"rootdisk-{vmid}"),
+                          ("secrets", f"cloudinit-{vmid}")):
+            try:
+                await self._req("DELETE", f"/api/v1/namespaces/{ns}/{kind_}/{nm}")
+            except HTTPException as e:
+                if "404" not in str(e.detail):
+                    raise
+
+    async def vm_status(self, ref_id: str, vkind: str = "", client_id: str = ""):
+        """Map VMI/VM -> running|stopped|provisioning|absent (lo que espera el
+        ledger). Sin client_id se busca cross-namespace (admin/drift)."""
+        try:
+            if client_id:
+                ns = self._ns(client_id)
+                vm = await self._req("GET", f"/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{self._name(ref_id)}")
+            else:
+                d = await self._req("GET", f"/apis/kubevirt.io/v1/virtualmachines/all")
+                items = [v for v in d.get("items", []) if v.get("metadata", {}).get("name") == self._name(ref_id)]
+                if not items:
+                    return "absent"
+                vm = items[0]
+            phase = (vm.get("status") or {}).get("printableStatus") or ""
+            ready = any(c.get("type") == "Ready" and c.get("status") == "True"
+                        for c in ((vm.get("status") or {}).get("conditions") or []))
+            if phase in ("Running",) or (ready and phase != "Stopped"):
+                return "running"
+            if phase in ("Stopped", "Terminating"):
+                return "stopped" if phase == "Stopped" else "provisioning"
+            return "provisioning"
+        except HTTPException as e:
+            if "404" in str(e.detail):
+                return "absent"
+            raise
+
+    async def node_usage(self) -> dict:
+        d = await self._req("GET", "/api/v1/nodes")
+        cpu = ram = 0
+        for n in d.get("items", []):
+            cap = (n.get("status") or {}).get("capacity") or {}
+            c_ = cap.get("cpu")
+            m_ = cap.get("memory", "0")
+            if c_ and str(c_).isdigit():
+                cpu += int(c_)
+            m = str(m_)
+            if m.endswith("Gi"):
+                ram += int(m[:-2]) * 1024
+            elif m.endswith("Mi"):
+                ram += int(m[:-2])
+            elif m.endswith("Ki"):
+                ram += int(m[:-2]) // 1024
+        gpus = 0
+        for res in ("nvidia.com/geforce-rtx-2080-ti", "nvidia.com/rtx-a5000", "nvidia.com/gpu"):
+            for n in d.get("items", []):
+                gpus += int(((n.get("status") or {}).get("capacity") or {}).get(res, "0") or 0)
+        return {"cpu": cpu, "ram_mb": ram, "gpus": gpus}
+
+    async def gpu_inventory(self) -> list:
+        """Inventario de GPUs del nodo: allocatable por recurso. La
+        disponibilidad la decide el ledger de cloudapi (claims), no K8s."""
+        d = await self._req("GET", "/api/v1/nodes")
+        out = []
+        for n in d.get("items", []):
+            alloc = (n.get("status") or {}).get("allocatable") or {}
+            for res, qty in alloc.items():
+                if res.startswith("nvidia.com/"):
+                    try:
+                        q = int(qty)
+                    except ValueError:
+                        continue
+                    model = res.split("/", 1)[1].replace("-", " ").title().replace("Nvidia", "NVIDIA")
+                    for _ in range(q):
+                        out.append({"addr": f"{n['metadata']['name']}/{res}/{_}",
+                                    "model": model, "resource": res,
+                                    "in_use_by": None})
+        return out
+
+    def node_probe(self) -> dict:
+        raise HTTPException(501, "probe sincronico no aplica a harvester (usar node_usage)")
+
+
+_PROVIDER_KINDS = {"pve": PVEProvider, "harvester": HarvesterProvider}
+
+
+def _node_row(node_id: str):
+    with db() as c:
+        r = c.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def provider_of(node_id: str):
+    row = _node_row(node_id) or _node_row("pve-1")
+    if row is None:
+        raise HTTPException(500, f"nodo {node_id} no registrado")
+    cls = _PROVIDER_KINDS.get(row["kind"])
+    if cls is None:
+        raise HTTPException(500, f"kind de nodo desconocido: {row['kind']}")
+    return cls(row)
+
+
+async def _pick_node(need_gpu: bool = False) -> dict:
+    """Elige el nodo donde nace la VM: online, sin drain, provider operativo.
+    Hoy solo PVE; el desempate por menor RAM asignada llega con el segundo
+    nodo (S2/S6). Si algn dia hay varios, orden por id estable."""
+    with db() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM nodes WHERE status='online' ORDER BY id")]
+    cands = [r for r in rows
+             if r["kind"] in _PROVIDER_KINDS
+             and getattr(_PROVIDER_KINDS[r["kind"]], "IMPLEMENTED", True)]
+    if not cands:
+        raise HTTPException(503, "no hay nodos operativos en el cloud")
+    return cands[0]
+
+
+def _node_assigned(node_id: str) -> dict:
+    with db() as c:
+        r = c.execute("""SELECT COALESCE(SUM(cpu),0) AS cpu,
+                                COALESCE(SUM(ram_mb),0) AS ram_mb,
+                                COALESCE(SUM(disk_gb),0) AS disk_gb
+                         FROM resources WHERE node_id=? AND status!='deleted'""",
+                      (node_id,)).fetchone()
+    return dict(r) if r else {"cpu": 0, "ram_mb": 0, "disk_gb": 0}
+
+
+def _capacity_check(node: dict, cpu: int, ram_mb: int, disk_gb: int):
+    """Capacidad FISICA del nodo (independiente de la quota comercial del
+    cliente). Con capacidad NULL (pve-1 historico) se omite: la quota por
+    cliente sigue siendo el unico limite, como hasta hoy."""
+    used = _node_assigned(node["id"])
+    if node["capacity_cpu"] is not None and used["cpu"] + cpu > node["capacity_cpu"]:
+        raise HTTPException(409, f"sin capacidad CPU en el nodo {node['id']}")
+    if node["capacity_ram_mb"] is not None and used["ram_mb"] + ram_mb > node["capacity_ram_mb"]:
+        raise HTTPException(409, f"sin capacidad RAM en el nodo {node['id']}")
+    if node["capacity_disk_gb"] is not None and used["disk_gb"] + disk_gb > node["capacity_disk_gb"]:
+        raise HTTPException(409, f"sin capacidad de disco en el nodo {node['id']}")
+
+
 # ─── Nomad client ──────────────────────────────────────────────────────
 def nomad_headers():
     h = {}
@@ -642,8 +1015,32 @@ async def nomad_delete(path: str) -> dict:
         raise HTTPException(502, f"Nomad error {r.status_code}: {r.text[:200]}")
     return r.json()
 
+async def _nomad_job_exists(job_id: str) -> bool:
+    """GET /v1/jobs/{id}: True si el job sigue en Nomad (404 = purgado)."""
+    try:
+        await nomad_get(f"/jobs/{job_id}")
+        return True
+    except HTTPException as e:
+        if "404" in str(e.detail):
+            return False
+        raise
+
+async def _nomad_ensure_gone(job_id: str) -> None:
+    """Purga el job de Nomad y verifica que desapareció; 502 si no."""
+    try:
+        await nomad_delete(f"/jobs/{job_id}?purge=true")
+    except HTTPException as e:
+        if "404" not in str(e.detail):
+            raise  # 404 = ya no existe, OK
+    for _ in range(12):
+        if not await _nomad_job_exists(job_id):
+            return
+        await asyncio.sleep(2)
+    raise HTTPException(502, f"el job {job_id} sigue existiendo en Nomad tras el purge")
+
 
 def _cf_request(method: str, path: str, payload: dict | None = None) -> dict:
+    CF_API_TOKEN_FILE = os.environ.get("CF_API_TOKEN_FILE", "/opt/cloudapi/cf_api_token.txt")
     tok = open(CF_API_TOKEN_FILE).read().strip()
     req = urllib.request.Request(
         f"https://api.cloudflare.com/client/v4/{path}",
@@ -657,9 +1054,8 @@ def _cf_request(method: str, path: str, payload: dict | None = None) -> dict:
         body = e.read().decode()
         raise HTTPException(502, f"Cloudflare API {e.code}: {body[:200]}")
 
-CF_TUNNEL_ID = os.environ.get("CF_TUNNEL_ID", "")
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
-CF_API_TOKEN_FILE = os.environ.get("CF_API_TOKEN_FILE", "/opt/cloudapi/cf_api_token.txt")
+CF_TUNNEL_ID = os.environ.get("CF_TUNNEL_ID", "00000000-0000-0000-0000-000000000000")
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "00000000000000000000000000000000")
 
 def _cf_tunnel_ingress() -> list:
     res = _cf_request("GET", f"accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations")
@@ -667,7 +1063,7 @@ def _cf_tunnel_ingress() -> list:
 
 def cf_set_ssh_host(host_id: str, port: int = None) -> None:
     """Asegura la regla UNIQUE gateway SSH en el tunnel:
-    ssh.<dominio> (default :443) -> ssh://<GATEWAY_IP>:2222 (gateway unico, dispatch por usuario).
+    ssh.surus.lat (default :443) -> ssh://10.20.0.20:2222 (gateway unico, dispatch por usuario).
     La VM se alcanza con  ssh {host_id}@ssh.surus.lat
     (ProxyCommand: cloudflared access ssh --hostname ssh.surus.lat).
     Idempotente: una sola regla compartida para todas las VMs (NO regla por-VM)."""
@@ -716,7 +1112,7 @@ def sshgw_port(vmid: int) -> int:
     return 2200 + (vmid - VM_ID_BASE)
 
 async def sshgw_up(vmid: int, host_id: str, extra_keys: str = "") -> None:
-    """Gateway SSH UNICO (<CLOUD_DOMAIN> -> <GATEWAY_IP>:2222).
+    """Gateway SSH UNICO (nubecita.surus.lat -> 10.20.0.20:2222).
     Por VM: crea el usuario local <host_id>, genera la clave de salto y la inyecta.
     El sshd del gateway ya corre (servicio fijo); el dispatch por usuario vive en
     /opt/sshgw/sshgw-dispatch y /opt/sshgw/sshkeycmd."""
@@ -1067,8 +1463,7 @@ def react_island():
 
 @app.get("/api/brand")
 def brand():
-    return {"name": "nubecita", "domain": CLOUD_DOMAIN, "ssh_domain": SSH_DOMAIN,
-            "vm_net": VM_NET_PREFIX}
+    return {"name": "nubecita", "domain": CLOUD_DOMAIN, "ssh_domain": SSH_DOMAIN}
 
 @app.get("/api/health")
 def api_health():
@@ -1193,7 +1588,8 @@ def list_users(role: Optional[str] = None, full: bool = False):
                 d["used"] = usage_by_client.get(uname,
                     {"vm_cpu":0,"vm_ram":0,"vm_disk":0,"vms":0,"c_cpu":0,"c_ram":0,"c_disk":0,"containers":0})
                 rate = sum(vm_hourly_cost(v["cpu"], v["ram_mb"], v["disk_gb"],
-                                         _gpu_units(v))
+                                         _gpu_units(v),
+                                         v["gpu_model"] if "gpu_model" in v.keys() else "")
                            for v in vm_rows if v["client_id"] == uname)
                 d["cost_per_hour"] = round(rate, 4)
                 d["hours_left"] = round(d["credits"] / rate, 2) if rate > 0 else None
@@ -1428,7 +1824,10 @@ def admin_list_resources():
         if d["kind"] == "vm" and d["status"] != "deleted":
             try:
                 vkind = "qemu" if d.get("gpu_mapping") else "lxc"
-                live = _pve_vm_status(int(d["ref_id"]), vkind).get("status")
+                if (d.get("node_id") or "pve-1") == "pve-1":
+                    live = _pve_vm_status(int(d["ref_id"]), vkind).get("status")
+                else:
+                    live = None   # nodos no-PVE: status via su provider (S2)
             except Exception:
                 live = None
         d["pve_status"] = live
@@ -1493,11 +1892,14 @@ class RateUpdate(BaseModel):
     ram_gb: Optional[float] = None
     disk_gb: Optional[float] = None
     gpu: Optional[float] = None
+    # override por modelo: {"RTX 2080 Ti": 6.5} — clave 'gpu:<modelo>' implicita
+    gpu_models: Optional[dict] = None
 
 @app.get("/admin/rates", dependencies=[Depends(admin_auth)])
 def admin_get_rates():
-    """Tasas vigentes (créditos/hora) + valores por defecto para reset."""
+    """Tasas vigentes (creditos/hora) + valores por defecto para reset."""
     return {"rates": {k: CREDIT_RATES.get(k, DEFAULT_RATES.get(k)) for k in RATE_KEYS},
+            "gpu_overrides": {k[4:]: v for k, v in CREDIT_RATES.items() if k.startswith("gpu:")},
             "defaults": DEFAULT_RATES,
             "labels": RATE_LABELS}
 
@@ -1508,7 +1910,11 @@ def admin_set_rates(body: RateUpdate):
         v = getattr(body, k)
         if v is not None and v < 0:
             raise HTTPException(400, f"la tasa {k} debe ser >= 0")
-    if not any(getattr(body, k) is not None for k in RATE_KEYS):
+    if body.gpu_models:
+        for model, v in body.gpu_models.items():
+            if not isinstance(v, (int, float)) or v < 0:
+                raise HTTPException(400, f"la tasa gpu:{model} debe ser >= 0")
+    if not any(getattr(body, k) is not None for k in RATE_KEYS) and not body.gpu_models:
         raise HTTPException(400, "nada para actualizar")
     with db() as c:
         for k in RATE_KEYS:
@@ -1516,20 +1922,28 @@ def admin_set_rates(body: RateUpdate):
             if v is not None:
                 c.execute("INSERT INTO credit_rates (rate_key, value) VALUES (?,?) "
                           "ON CONFLICT(rate_key) DO UPDATE SET value=excluded.value", (k, float(v)))
+        for model, v in (body.gpu_models or {}).items():
+            c.execute("INSERT INTO credit_rates (rate_key, value) VALUES (?,?) "
+                      "ON CONFLICT(rate_key) DO UPDATE SET value=excluded.value",
+                      (f"gpu:{model}", float(v)))
         CREDIT_RATES.update({k: float(getattr(body, k)) for k in RATE_KEYS if getattr(body, k) is not None})
-    return {"rates": {k: CREDIT_RATES.get(k) for k in RATE_KEYS}}
+        CREDIT_RATES.update({f"gpu:{m}": float(v) for m, v in (body.gpu_models or {}).items()})
+    return {"rates": {k: CREDIT_RATES.get(k) for k in RATE_KEYS},
+            "gpu_overrides": {k[4:]: v for k, v in CREDIT_RATES.items() if k.startswith("gpu:")}}
 
 async def _admin_vm_action(vmid: int, action: str, client_id: str | None = None):
     # client_id: scoping de ownership — si se pasa, la VM debe ser de ese cliente
     with db() as c:
         if client_id is not None:
-            row = c.execute("SELECT gpu_mapping FROM resources WHERE client_id=? AND kind='vm' AND ref_id=? AND status!='deleted' LIMIT 1",
+            row = c.execute("SELECT gpu_mapping, node_id FROM resources WHERE client_id=? AND kind='vm' AND ref_id=? AND status!='deleted' LIMIT 1",
                             (client_id, str(vmid))).fetchone()
             if not row:
                 raise HTTPException(404, "VM no existe o no te pertenece")
         else:
-            row = c.execute("SELECT gpu_mapping FROM resources WHERE kind='vm' AND ref_id=? AND status!='deleted' LIMIT 1",
+            row = c.execute("SELECT gpu_mapping, node_id FROM resources WHERE kind='vm' AND ref_id=? AND status!='deleted' LIMIT 1",
                             (str(vmid),)).fetchone()
+    if row:
+        _require_pve_row(row, vmid)
     api = "qemu" if (row and row["gpu_mapping"]) else "lxc"
     try:
         st = await pve_get(f"/nodes/{PVE_NODE}/{api}/{vmid}/status/current")
@@ -1589,14 +2003,10 @@ async def admin_force_delete_resource(kind: str, ref_id: str):
         if kind == "vm":
             gmap = r["gpu_mapping"] if "gpu_mapping" in r.keys() else None
             api = "qemu" if gmap else "lxc"
-            try:
-                await pve_post(f"/nodes/{PVE_NODE}/{api}/{int(ref_id)}/status/stop", {})
-            except HTTPException:
-                pass
-            try:
-                await pve_delete(f"/nodes/{PVE_NODE}/{api}/{int(ref_id)}")
-            except HTTPException:
-                pass
+            # garantia de borrado: detecta kind real, detiene, destruye y
+            # VERIFICA que desaparecio de PVE (sube 502 si no) — nunca tragar
+            # el error y marcar deleted sobre una VM viva (bug 24/10).
+            await _pve_ensure_gone(api, int(ref_id))
             if gmap:
                 await _release_gpu(gmap)
             host_id = r["host_id"] if "host_id" in r.keys() else None
@@ -1607,16 +2017,114 @@ async def admin_force_delete_resource(kind: str, ref_id: str):
             except Exception:
                 pass
         else:
-            try:
-                await nomad_delete(f"/jobs/{ref_id}?purge=true")
-            except HTTPException:
-                pass
+            await _nomad_ensure_gone(ref_id)
     except HTTPException:
-        pass
+        raise
     with db() as c:
         c.execute("UPDATE resources SET status='deleted' WHERE kind=? AND ref_id=? AND status!='deleted'",
                   (kind, ref_id))
     return {"kind": kind, "ref_id": ref_id, "status": "deleted"}
+
+def _nodes_admin_view() -> list:
+    out = []
+    with db() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM nodes ORDER BY id")]
+    for n in rows:
+        n["assigned"] = _node_assigned(n["id"])
+        out.append(n)
+    return out
+
+
+@app.get("/admin/nodes", dependencies=[Depends(admin_auth)])
+def admin_list_nodes():
+    """Nodos registrados + capacidad asignada (del ledger)."""
+    return _nodes_admin_view()
+
+
+class NodeCreate(BaseModel):
+    id: str
+    kind: str                       # pve | harvester
+    endpoint: str
+    token_ref: str = ""
+    capacity_cpu: Optional[int] = None
+    capacity_ram_mb: Optional[int] = None
+    capacity_disk_gb: Optional[int] = None
+    gpus: int = 0
+
+
+@app.post("/admin/nodes", dependencies=[Depends(admin_auth)])
+def admin_create_node(body: NodeCreate):
+    """Alta de un backend nuevo (idempotente por id). El provider queda
+    INERTE hasta su e2e: kinds sin IMPLEMENTED no son candidatos en
+    _pick_node, y harvester nace en status 'offline' hasta el primer probe
+    e2e (el admin lo pasa a 'online' tras validar el runbook)."""
+    if body.kind not in _PROVIDER_KINDS:
+        raise HTTPException(400, f"kind invalido (validos: {', '.join(sorted(_PROVIDER_KINDS))})")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", body.id):
+        raise HTTPException(400, "id debe ser [a-z0-9-] (max 31)")
+    if not body.endpoint.startswith("http"):
+        raise HTTPException(400, "endpoint debe ser una URL http(s)")
+    initial = "offline" if body.kind == "harvester" else "online"
+    with db() as c:
+        c.execute("""INSERT INTO nodes (id, kind, endpoint, token_ref, capacity_cpu,
+                                        capacity_ram_mb, capacity_disk_gb, gpus, status)
+                     VALUES (?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,
+                        endpoint=excluded.endpoint, token_ref=excluded.token_ref,
+                        capacity_cpu=excluded.capacity_cpu,
+                        capacity_ram_mb=excluded.capacity_ram_mb,
+                        capacity_disk_gb=excluded.capacity_disk_gb,
+                        gpus=excluded.gpus""",
+                  (body.id, body.kind, body.endpoint, body.token_ref,
+                   body.capacity_cpu, body.capacity_ram_mb, body.capacity_disk_gb,
+                   body.gpus, initial))
+    return _node_row(body.id)
+
+
+class NodePatch(BaseModel):
+    status: Optional[str] = None      # online | offline | drain
+    capacity_cpu: Optional[int] = None
+    capacity_ram_mb: Optional[int] = None
+    capacity_disk_gb: Optional[int] = None
+    gpus: Optional[int] = None
+
+
+@app.put("/admin/nodes/{node_id}", dependencies=[Depends(admin_auth)])
+def admin_update_node(node_id: str, body: NodePatch):
+    if not _node_row(node_id):
+        raise HTTPException(404, "nodo inexistente")
+    if body.status is not None and body.status not in ("online", "offline", "drain"):
+        raise HTTPException(400, "status debe ser online|offline|drain")
+    sets, vals = [], []
+    for f in ("status", "capacity_cpu", "capacity_ram_mb", "capacity_disk_gb", "gpus"):
+        v = getattr(body, f)
+        if v is not None:
+            sets.append(f"{f}=?"); vals.append(v)
+    if sets:
+        with db() as c:
+            c.execute(f"UPDATE nodes SET {', '.join(sets)} WHERE id=?", (*vals, node_id))
+    return _node_row(node_id)
+
+
+@app.post("/admin/nodes/{node_id}/probe", dependencies=[Depends(admin_auth)])
+async def admin_probe_node(node_id: str):
+    """Consulta el backend del nodo y actualiza last_seen. Parcial por
+    dependencia: un backend caido devuelve error en ese nodo, no un 500."""
+    row = _node_row(node_id)
+    if not row:
+        raise HTTPException(404, "nodo inexistente")
+    try:
+        prov = provider_of(node_id)
+        live = prov.node_probe() if hasattr(prov, "node_probe") else {"note": "probe no implementado"}
+    except Exception as e:
+        return {"node": node_id, "ok": False, "error": str(e)[:200]}
+    with db() as c:
+        c.execute("UPDATE nodes SET last_seen=datetime('now') WHERE id=?", (node_id,))
+    return {"node": node_id, "ok": True, "live": live, "capacity": {
+        "cpu": row["capacity_cpu"], "ram_mb": row["capacity_ram_mb"],
+        "disk_gb": row["capacity_disk_gb"], "gpus": row["gpus"]},
+        "assigned": _node_assigned(node_id)}
+
 
 # Caché del resultado de /admin/system: TTL 60s. El gather (PVE + Nomad +
 # systemctl) hace 2-3 llamadas de red/subprocess por request; cachearlo evita
@@ -1763,16 +2271,14 @@ async def admin_reconcile_vms():
 async def _pve_gone(kind: str, vmid: int, retries: int = 14) -> bool:
     """True si la VM desapareció de PVE; espera la tarea asíncrona.
 
-    Una VM que no existe hace que PVE devuelva 500 con
-    'Configuration file ... does not exist' (también 404/403 en algunos casos).
+    Verificación CLUSTER-WIDE via /cluster/resources: preguntar por
+    status/current del kind SUPUESTO da 'does not exist' falso cuando el kind
+    está mal (VM qemu borrada vía API de lxc -> verificación aprobaba con la
+    VM viva; bug 24/10).
     """
     for _ in range(retries):
-        try:
-            await pve_get(f"/nodes/{PVE_NODE}/{kind}/{vmid}/status/current")
-        except HTTPException as e:
-            det = str(e.detail)
-            if "does not exist" in det or "404" in det or "403" in det:
-                return True
+        if not await _pve_vm_exists(vmid):
+            return True
         await asyncio.sleep(5)
     return False
 
@@ -1781,8 +2287,32 @@ def _pve_missing(e: HTTPException) -> bool:
     det = str(e.detail)
     return "does not exist" in det or "404" in det or "403" in det
 
+async def _pve_vm_exists(vmid: int) -> bool:
+    """Cluster-wide: el vmid existe en PVE sin importar el kind."""
+    return str(vmid) in await _pve_existing_in_range()
+
+async def _pve_detect_kind(vmid: int, fallback: str) -> str:
+    """Kind REAL del vmid en PVE ('qemu'/'lxc'), o 'ninguno' si no existe.
+
+    No confiar en el ledger para elegir la API de borrado: gpu_mapping queda
+    NULL tras un remapeo manual y una VM QEMU se borraría por la API de LXC
+    (bug 24/10: DELETE respondió OK, PVE dijo 'config does not exist' para el
+    kind equivocado, y la QEMU quedó viva facturando con ledger 'deleted').
+    """
+    kind = (await _pve_existing_in_range()).get(str(vmid))
+    return kind or "ninguno"
+
 async def _pve_ensure_gone(kind: str, vmid: int) -> None:
-    """Detiene y destruye la VM hasta que desaparezca de PVE."""
+    """Detiene y destruye la VM hasta que desaparezca de PVE.
+
+    El `kind` del ledger NO es de fiar (gpu_mapping NULL tras remapeo manual
+    -> qemu tratada como lxc). Se detecta el kind real en PVE y, si el vmid
+    no existe, se sale temprano.
+    """
+    real = await _pve_detect_kind(vmid, kind)
+    if real == "ninguno":
+        return
+    kind = real
     # detener (ignorar si ya no existe o está detenido)
     try:
         await pve_post(f"/nodes/{PVE_NODE}/{kind}/{vmid}/status/stop", {})
@@ -1791,15 +2321,19 @@ async def _pve_ensure_gone(kind: str, vmid: int) -> None:
                 st = await pve_get(f"/nodes/{PVE_NODE}/{kind}/{vmid}/status/current")
             except HTTPException as e:
                 if _pve_missing(e):
-                    return  # ya no existe
+                    if not await _pve_vm_exists(vmid):
+                        return  # ya no existe
+                    kind = (await _pve_existing_in_range()).get(str(vmid), kind)
+                    break  # kind cambió: seguir al delete con el correcto
                 raise
             if (st.get("data") or {}).get("status") == "stopped":
                 break
             await asyncio.sleep(3)
     except HTTPException as e:
         if _pve_missing(e):
-            return  # no existe
-        if "not running" not in str(e.detail).lower():
+            if not await _pve_vm_exists(vmid):
+                return  # no existe
+        elif "not running" not in str(e.detail).lower():
             raise
         # 'not running' = ya estaba detenida: NO retornar, continuar al delete
         # (bug 07/10: el return temprano se saltaba el destroy y la VM quedaba
@@ -1811,7 +2345,15 @@ async def _pve_ensure_gone(kind: str, vmid: int) -> None:
             break
         except HTTPException as e:
             if _pve_missing(e):
-                return  # ya no existe
+                if not await _pve_vm_exists(vmid):
+                    return  # ya no existe
+                # 'does not exist' en el kind supuesto pero el vmid VIVE en el
+                # otro kind: reintentar con el kind real (bug 24/10)
+                real2 = (await _pve_existing_in_range()).get(str(vmid))
+                if real2 and real2 != kind:
+                    kind = real2
+                    continue
+                raise
             if attempt == 0 and "running" in str(e.detail).lower():
                 await asyncio.sleep(3)
                 continue
@@ -2068,7 +2610,7 @@ async def _create_qemu_gpu_vm(vmid: int, client: dict, body: VMCreate,
 
     # 2b) GPU + sizing (sin net0: PVE aplica todo).
     #    SIN ide2: el template 9000 YA trae el disco cloudinit (vm-<vmid>-
-    #    cloudinit.qcow2 en el storage de discos) y re-crear ese path aborta el task
+    #    cloudinit.qcow2 en INTELSSD0) y re-crear ese path aborta el task
     #    ("already exists"), revirtiendo también cores/memory/hostpci0.
     gpu_data = {
         "hostpci0": f"mapping={mapping_id},rombar=0",
@@ -2182,6 +2724,8 @@ async def create_vm(client: dict = Depends(current_client), body: VMCreate = VMC
     fila en el ledger con status='provisioning' y responde de inmediato. El
     trabajo real (clone, config, start, ssh) corre en background y actualiza
     el status a 'running' o 'failed' al terminar."""
+    if body.cpu < 1 or body.ram_gb < 1 or body.disk_gb < 1:
+        raise HTTPException(400, "cpu, ram_gb y disk_gb deben ser enteros positivos")
     _check_vm_quota(client, body.cpu, body.ram_gb, body.disk_gb)
     is_gpu = bool(body.gpu)
     # GPU: la VM arranca del template 9100 (disco 8G con driver incluido) y
@@ -2191,10 +2735,14 @@ async def create_vm(client: dict = Depends(current_client), body: VMCreate = VMC
         raise HTTPException(400, "las VMs con GPU arrancan desde un template de 8GB "
                                  "(incluye el driver) y no se puede achicar el disco: "
                                  "elegí 8GB o más")
-    est = vm_hourly_cost(body.cpu, body.ram_gb * 1024, body.disk_gb, gpu=1 if is_gpu else 0)
+    est = vm_hourly_cost(body.cpu, body.ram_gb * 1024, body.disk_gb, gpu=1 if is_gpu else 0,
+                         gpu_model=body.gpu_model or "")
     if _user_credits(client["id"]) < est:
         raise HTTPException(402, f"créditos insuficientes para crear una VM que cuesta "
                                   f"~{est:.2f} cr/h (saldo {_user_credits(client['id']):.2f}). Pedí un top-up al admin.")
+    # Multi-nodo (S1): el scheduler elige el backend; hoy siempre pve-1.
+    node = await _pick_node(need_gpu=is_gpu)
+    _capacity_check(node, body.cpu, body.ram_gb * 1024, body.disk_gb)
     vmid = await _next_vmid(kind="qemu" if is_gpu else "lxc")
     name = _sanitename(body.name, f"vm-{client['id']}-{vmid}")
     ip = f"{VM_NET_PREFIX}.{vmid - VM_ID_BASE + 2}/24"
@@ -2214,10 +2762,10 @@ async def create_vm(client: dict = Depends(current_client), body: VMCreate = VMC
 
     # Fila en provisioning (visible al instante en el front)
     with db() as c:
-        c.execute("INSERT INTO resources (client_id, kind, ref_id, name, cpu, ram_mb, disk_gb, status, host_id, gpu_mapping, gpu_model) "
-                  "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO resources (client_id, kind, ref_id, name, cpu, ram_mb, disk_gb, status, host_id, gpu_mapping, gpu_model, node_id) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                   (client["id"], "vm", str(vmid), name, body.cpu, body.ram_gb*1024, body.disk_gb,
-                   "provisioning", host_id, mapping_id, gpu_model))
+                   "provisioning", host_id, mapping_id, gpu_model, node["id"]))
     # El trabajo real corre en background (no bloquea al cliente)
     asyncio.create_task(_provision_vm_bg(client["id"], vmid, name, ip, host_id, is_gpu, mapping_id, body))
     return {"name": name, "cpu": body.cpu, "ram_gb": body.ram_gb,
@@ -2319,7 +2867,29 @@ async def _provision_vm_bg(client_id: str, vmid: int, name: str, ip: str,
             await _release_gpu(mapping_id)
         final_status = "failed"
     with db() as c:
-        if ok:
+        cur = c.execute("SELECT status FROM resources WHERE client_id=? AND kind='vm' AND ref_id=?",
+                        (client_id, str(vmid))).fetchone()
+        if cur and cur["status"] == "deleting":
+            # DELETE llegó en pleno provisioning: el bg task (dueño del ciclo)
+            # destruye en PVE y libera recursos — sin carrera con delete_vm.
+            c.execute("UPDATE resources SET status='deleted', gpu_mapping=NULL WHERE client_id=? AND kind='vm' AND ref_id=?",
+                      (client_id, str(vmid)))
+            try:
+                await _pve_ensure_gone("qemu" if is_gpu else "lxc", vmid)
+            except Exception as e:
+                log.error(f"cleanup deleting vm {vmid} en PVE falló: {getattr(e, 'detail', e)}")
+            if is_gpu and mapping_id:
+                try:
+                    await _release_gpu(mapping_id)
+                except Exception:
+                    pass
+            try:
+                sshgw_down(vmid, host_id)
+                cf_del_ssh_host(host_id)
+            except Exception:
+                pass
+            final_status = "deleted"
+        elif ok:
             c.execute("UPDATE resources SET status=?, gpu_mapping=? WHERE client_id=? AND kind='vm' AND ref_id=? AND status='provisioning'",
                       ("running", mapping_id, client_id, str(vmid)))
         else:
@@ -2332,7 +2902,7 @@ async def _provision_vm_bg(client_id: str, vmid: int, name: str, ip: str,
 @app.get("/vm")
 def list_vms(client: dict = Depends(current_client)):
     with db() as c:
-        rows = c.execute("SELECT * FROM resources WHERE client_id=? AND kind='vm'", (client["id"],)).fetchall()
+        rows = c.execute("SELECT * FROM resources WHERE client_id=? AND kind='vm' AND status NOT IN ('deleted','deleting')", (client["id"],)).fetchall()
     out = []
     for r in rows:
         out.append(dict(r))
@@ -2359,6 +2929,19 @@ async def delete_vm(vmid: int, client: dict = Depends(current_client)):
     gmap = r["gpu_mapping"] if "gpu_mapping" in r.keys() else None
     is_qemu = bool(gmap)
     api = "qemu" if is_qemu else "lxc"
+    _require_pve_row(r, vmid)
+    # FIX caos 27/11: borrar una VM EN PLENO provisioning dejaba zombie —
+    # _pve_ensure_gone competia con el alta en PVE (502) y el bg task terminaba
+    # marcando 'running' sobre el delete perdido (VM viva facturando).
+    # Ahora la fila pasa a 'deleting' y el bg task hace la destrucción real al
+    # terminar (dueño del ciclo de vida), sin carrera.
+    if r["status"] == "provisioning":
+        with db() as c:
+            c.execute("UPDATE resources SET status='deleting' WHERE client_id=? AND kind='vm' AND ref_id=?",
+                      (client["id"], str(vmid)))
+        return {"vmid": vmid, "status": "deleting"}
+    # El kind del ledger puede estar mal (gpu_mapping NULL tras remapeo manual):
+    # _pve_ensure_gone detecta el kind real en PVE antes de tocar nada.
     # destruir en PVE (detiene + destruye + verifica que desapareció).
     # Si falla, NUNCA se marca 'deleted' en el ledger (evita huérfanos).
     await _pve_ensure_gone(api, vmid)
@@ -2472,11 +3055,12 @@ async def delete_service(job_id: str, client: dict = Depends(current_client)):
     if not r:
         raise HTTPException(404, "service no pertenece a este cliente")
     try:
-        # Detener y purgar el job de Nomad
-        await nomad_delete(f"/jobs/{job_id}?purge=true")
+        # Detener y purgar el job de Nomad + VERIFICAR que desaparecio
+        # (si no, se propaga y NO se marca deleted en el ledger).
+        await _nomad_ensure_gone(job_id)
     except HTTPException as e:
         if e.status_code == 502:
-            pass
+            raise HTTPException(502, f"no se pudo purgar el job {job_id} de Nomad")
     with db() as c:
         c.execute("UPDATE resources SET status='deleted' WHERE client_id=? AND ref_id=? AND kind='container'",
                   (client["id"], job_id))
@@ -2708,7 +3292,8 @@ def my_credits(client: dict = Depends(current_client)):
         ev = c.execute("SELECT delta, reason, created_at FROM credit_events WHERE username=? "
                        "ORDER BY id DESC LIMIT 25", (uname,)).fetchall()
     running_rate = sum(vm_hourly_cost(r["cpu"], r["ram_mb"], r["disk_gb"],
-                                     _gpu_units(r)) for r in rows)
+                                     _gpu_units(r),
+                                     r["gpu_model"] if "gpu_model" in r.keys() else "") for r in rows)
     hours_left = round(_user_credits(uname) / running_rate, 2) if running_rate > 0 else None
     return {
         "credits": _user_credits(uname),

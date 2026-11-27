@@ -102,17 +102,12 @@ salvo los tokens):
 | Variable | Qué hace |
 |---|---|
 | `CLOUDAPI_DB` | ruta de la base SQLite |
-| `PVE_HOST`, `PVE_NODE`, `PVE_USER`, `PVE_TOKEN_NAME`, `PVE_TOKEN_VAL` | API de Proxmox VE (host, nodo, usuario y token) |
+| `PVE_TOKEN_VAL` | token de la API de Proxmox VE (`PVE_USER` / `PVE_TOKEN_NAME` en el código) |
 | `ADMIN_TOKEN` | token del panel de administración |
 | `INJECT_HOST`, `INJECT_TOKEN` | worker del host (inyección SSH / tmpfs) |
-| `INJECT_BIND`, `INJECT_PORT`, `INJECT_ALLOW` | worker: bind, puerto y lista de IPs permitidas (fail-closed: vacío = rechaza todo) |
 | `NOMAD_HOST`, `NOMAD_TOKEN` | cluster Nomad (opcional) |
 | `CLOUD_DOMAIN` / `SSH_DOMAIN` | dominios públicos de la app y del gateway SSH |
-| `GATEWAY_IP` | IP interna del gateway SSH (usada en las reglas del túnel) |
-| `VM_NET_PREFIX` | prefijo de red de las VMs de clientes (default `10.20.1`) |
-| `CF_TUNNEL_ID`, `CF_ACCOUNT_ID`, `CF_API_TOKEN_FILE` | Cloudflare Tunnel (ingress SSH por VM) |
 | `GPU_TEMPLATE_VID`, `GPU_DISK_STORAGE` | template QEMU con driver NVIDIA y storage de discos GPU |
-| `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` | crea el primer admin al arrancar una DB desde cero |
 | `CREDIT_BILL_INTERVAL` | cada cuántos segundos se factura (default 60) |
 | `SERVICE_KEY_PUB_FILE` | clave pública del servicio para la inyección SSH |
 

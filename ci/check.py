@@ -40,7 +40,7 @@ def main():
         scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
                              text, re.S)
         body = max(scripts, key=len) if scripts else ""
-        node = shutil.which("node") or "node"
+        node = shutil.which("node") or "/root/.local/share/pi-node/current/bin/node"
         if body.strip():
             fd, js = tempfile.mkstemp(suffix=".js")
             try:

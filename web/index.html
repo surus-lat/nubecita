@@ -96,6 +96,7 @@ tr.rowdead td:first-child b{font-weight:400;text-decoration:line-through}
 .pill.pending,.pill.other,.pill.unknown{background:#232c40;color:var(--mut)}
 .pill.drift{background:#42320f;color:var(--warn);margin-left:6px}
 .pill.provisioning{background:#12301f;color:var(--acc);animation:blink 1.2s ease-in-out infinite}
+.pill.deleting{background:#42320f;color:var(--warn);animation:blink 1.2s ease-in-out infinite}
 .pill.t_open,.pill.t_in_progress{background:#232c40;color:var(--mut)}
 .pill.t_resolved{background:#12301f;color:var(--ok)}
 .pill.t_closed{background:#33181c;color:var(--bad)}
@@ -351,7 +352,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fdate=s=>s?String(s).slice(0,10):"—";
 const fmtCr=x=>(Math.round((+x||0)*100)/100).toLocaleString("es-AR",{maximumFractionDigits:2});
-function vmIp(ref,subnet){const v=parseInt(ref);if(isNaN(v)||!subnet)return"—";const p=((brand&&brand.vm_net)||"10.20.1").split(".");return`${p[0]}.${p[1]}.${subnet}.${v-6100+2}`;}
+function vmIp(ref,subnet){const v=parseInt(ref);return isNaN(v)||!subnet?"—":`10.20.${subnet}.${v-6100+2}`;}
 const sshDom=()=>brand.ssh_domain||"ssh.surus.lat";
 
 async function api(path,method="GET",body,role){
@@ -381,7 +382,7 @@ async function cachedApi(path,ttl=15000,opts){
 }
 function cacheBust(prefix){for(const k of _cache.keys())if(k.startsWith(prefix))_cache.delete(k);}
 /* ═══ UI Kit Cloud — Web Components (light DOM: el CSS global .pill/.bar sigue aplicando) ═══ */
-const NC_STAT=["running","stopped","deleted","absent","provisioning"];
+const NC_STAT=["running","stopped","deleted","absent","provisioning","deleting"];
 customElements.define("nc-pill",class extends HTMLElement{
   static get observedAttributes(){return ["status"];}
   connectedCallback(){this._draw();}
@@ -597,7 +598,7 @@ function loadAdminBundle(){
   return adminBundleP;
 }
 function renderTabs(){
-  const tabs=[["overview","Resumen"],["resources","Recursos"],["users","Usuarios / Clientes"],["tickets","Tickets"]];
+  const tabs=[["overview","Resumen"],["resources","Recursos"],["users","Usuarios / Clientes"],["nodes","Nodos"],["tickets","Tickets"]];
   $("#tabs").innerHTML=tabs.map(([k,l])=>
     `<button data-tab="${k}" class="${k===adminTab?"on":""}" onclick="setTab('${k}')">${l}</button>`).join("");
 }
@@ -847,7 +848,7 @@ function svcsCache(list){svcsCache.l=list;} svcsCache.l=[];
 function drawFilt(elId,key){
   const el=$("#"+elId);if(!el)return;
   const opts=key==="vm"
-    ?[["all","Todas"],["running","Running"],["provisioning","Provisioning"],["stopped","Stopped"]]
+    ?[["all","Todas"],["running","Running"],["provisioning","Provisioning"],["deleting","Deleting"],["stopped","Stopped"]]
     :[["all","Todas"],["running","Running"],["stopped","Stopped"]];
   el.innerHTML=opts.map(([k,l])=>`<button class="${k===clientFilter?"on":""}" onclick="setFilt('${key}','${k}')">${l}</button>`).join("");
 }

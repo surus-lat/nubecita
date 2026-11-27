@@ -4,16 +4,39 @@
 #   - ssh interactivo (sin comando): shell en la VM.
 #   - rsync/scp/sftp/git-over-ssh: sshd pone el comando pedido en SSH_ORIGINAL_COMMAND;
 #     lo re-ejecutamos en la VM SIN forzar TTY (con -tt rsync/scp rompen).
+# Whitelist por TOKENS (no por prefijo fijo): scp de Windows manda los flags en
+# orden variable (ej. "scp -r -f -- /ruta") y el viejo case "scp -f*" lo rechazaba.
 set -u
 [ -n "${USER:-}" ] || { echo "sin usuario" >&2; exit 1; }
 CMD="${SSH_ORIGINAL_COMMAND:-}"
 if [ -z "$CMD" ]; then
   exec sudo -n /usr/local/bin/gwssh "$USER"
 fi
-case "$CMD" in
-  rsync\ --server*|rsync\ -*) ;;
-  scp\ -t*|scp\ -f*|scp\ --remote-protocol*|/usr/libexec/sftp-server*|/usr/lib/openssh/sftp-server*) ;;
-  git-upload-pack\ *|git-receive-pack\ *|git\ server*|git\ -C*) ;;
-  *) echo "comando no permitido: solo shell interactiva, rsync, scp, sftp o git por SSH" >&2; exit 1;;
+ok=0
+read -r -a TOKS <<< "$CMD"
+BIN="${TOKS[0]:-}"
+ARGS=("${TOKS[@]:1}")
+case "$BIN" in
+  rsync)
+    case "${ARGS[0]:-}" in --server|-*) ok=1 ;; esac ;;
+  scp)
+    # scp protocolo legacy: el lado remoto corre scp -t (upload) o scp -f (download),
+    # con flags extra ANTES o DESPUES (Windows: "scp -r -f"). Aceptamos si aparece
+    # un token -t*/-f*/--remote-protocol en cualquier posicion.
+    for a in ${ARGS[@]+"${ARGS[@]}"}; do
+      case "$a" in
+        -t*|-f*|--remote-protocol) ok=1; break ;;
+      esac
+    done ;;
+  /usr/libexec/sftp-server|/usr/lib/openssh/sftp-server)
+    ok=1 ;;
+  git-upload-pack|git-receive-pack|/usr/lib/git-core/git-upload-pack|/usr/lib/git-core/git-receive-pack)
+    ok=1 ;;
+  git)
+    case "${ARGS[0]:-}" in server|-C*) ok=1 ;; esac ;;
 esac
+if [ "$ok" != 1 ]; then
+  echo "comando no permitido: solo shell interactiva, rsync, scp, sftp o git por SSH" >&2
+  exit 1
+fi
 exec sudo -n /usr/local/bin/gwssh "$USER" -c "$CMD"

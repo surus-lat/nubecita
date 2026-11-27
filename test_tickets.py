@@ -2,7 +2,7 @@
 """E2E de la ticketera contra una DB de test aislada (uvicorn en :8099)."""
 import json, os, signal, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
-APP = os.path.dirname(os.path.abspath(__file__))
+APP = "/root/.hermes/cache/scratch/worktrees/bugs"
 PORT = 8099
 PKILL_PATTERN = "uvicorn app:app --port %d" % PORT
 
@@ -21,8 +21,6 @@ def main():
     env = dict(os.environ)
     env["CLOUDAPI_DB"] = os.path.join(tmp, "test.db")
     env["ADMIN_TOKEN"] = "adm" + "in-tok"
-    env["SEED_ADMIN_USER"] = "tadmin"
-    env["SEED_ADMIN_PASSWORD"] = "t" + "pass-123"
 
     pkill_port()
     proc = subprocess.Popen(
@@ -65,8 +63,8 @@ def main():
 
         admin = "adm" + "in-tok"
 
-        # login admin y cliente (semilla: SEED_ADMIN_USER admin, test cliente)
-        s, d = req("/api/login", "POST", {"username": "tadmin", "password": "t" + "pass-123"})
+        # login admin y cliente (semilla demo: test)
+        s, d = req("/api/login", "POST", {"username": "test", "password": "test"})
         check("login admin", s == 200 and d.get("role") == "admin", (s, d))
         s, d = req("/api/login", "POST", {"username": "test", "password": "test"})
         check("login cliente", s == 200 and d.get("role") == "client", (s, d))
